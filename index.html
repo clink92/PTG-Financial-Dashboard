@@ -1,0 +1,1412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PTG Financial Dashboard Preview</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card-bg: #ffffff;
+      --accent: #003366;
+      --accent-soft: #e1ecf7;
+      --accent-light: #0066cc;
+      --text-main: #1f2933;
+      --text-muted: #6b7280;
+      --danger: #b91c1c;
+      --danger-soft: rgba(185, 28, 28, 0.08);
+      --success: #15803d;
+      --success-soft: rgba(21, 128, 61, 0.08);
+      --warning: #d97706;
+      --warning-soft: rgba(217, 119, 6, 0.08);
+      --info: #0284c7;
+      --info-soft: rgba(2, 132, 199, 0.08);
+      --border: #e5e7eb;
+      --shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+      --shadow-hover: 0 8px 20px rgba(15, 23, 42, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text-main);
+    }
+
+    .page {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }
+
+    .header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .header-title {
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-title i {
+      font-size: 22px;
+    }
+
+    .header-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .month-select {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pill {
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pill i {
+      font-size: 11px;
+    }
+
+    .pill span {
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--success-soft);
+      color: var(--success);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .status-indicator.warning {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .status-indicator i {
+      font-size: 10px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .grid-5 {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 1200px) {
+      .grid-5 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    @media (max-width: 768px) {
+      .grid-5 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: 14px;
+      padding: 16px 16px 18px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+      transition: box-shadow 0.2s ease, transform 0.2s ease;
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-hover);
+    }
+
+    .card-clickable {
+      cursor: pointer;
+    }
+
+    .card-clickable:hover {
+      transform: translateY(-2px);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .card-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card-title i {
+      font-size: 14px;
+      color: var(--accent);
+    }
+
+    .card-tag {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .card-tag.success {
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .card-tag.warning {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .card-tag.danger {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .metric-main {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--text-main);
+    }
+
+    .metric-main.success {
+      color: var(--success);
+    }
+
+    .metric-main.danger {
+      color: var(--danger);
+    }
+
+    .metric-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .metric-sub span {
+      font-weight: 600;
+    }
+
+    .metric-sub .positive {
+      color: var(--success);
+    }
+
+    .metric-sub .negative {
+      color: var(--danger);
+    }
+
+    .metric-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 6px;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .metric-badge i {
+      font-size: 10px;
+    }
+
+    .metric-badge.negative {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .metric-badge.warning {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .metric-badge.info {
+      background: var(--info-soft);
+      color: var(--info);
+    }
+
+    .progress-container {
+      margin-top: 10px;
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .progress-bar {
+      height: 6px;
+      background: var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-light));
+      transition: width 0.5s ease;
+    }
+
+    .progress-fill.success {
+      background: linear-gradient(90deg, var(--success), #22c55e);
+    }
+
+    .progress-fill.warning {
+      background: linear-gradient(90deg, var(--warning), #fbbf24);
+    }
+
+    .progress-fill.danger {
+      background: linear-gradient(90deg, var(--danger), #ef4444);
+    }
+
+    .layout-2col {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr);
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .layout-3col {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    @media (max-width: 1100px) {
+      .layout-3col {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .layout-2col, .layout-3col {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card-body {
+      margin-top: 4px;
+    }
+
+    canvas {
+      max-width: 100%;
+    }
+
+    .legend-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-right: 10px;
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #2563eb;
+    }
+
+    .legend-dot.budget {
+      background: #9ca3af;
+    }
+
+    .legend-dot.ytd {
+      background: #22c55e;
+    }
+
+    .section-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .section-divider {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent);
+      margin: 24px 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .notes {
+      font-size: 12px;
+      color: var(--text-muted);
+      padding-left: 18px;
+      margin: 0;
+    }
+
+    .notes li {
+      margin-bottom: 6px;
+      line-height: 1.5;
+    }
+
+    .notes li::marker {
+      color: var(--accent);
+    }
+
+    .alert-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+
+    .alert-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .alert-item.warning {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .alert-item.danger {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .alert-item.success {
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .alert-item.info {
+      background: var(--info-soft);
+      color: var(--info);
+    }
+
+    .alert-item i {
+      margin-top: 2px;
+    }
+
+    .alert-content {
+      flex: 1;
+    }
+
+    .alert-title {
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .alert-desc {
+      opacity: 0.85;
+      line-height: 1.4;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .stat-row:last-child {
+      border-bottom: none;
+    }
+
+    .stat-label {
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-value {
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .stat-value.positive {
+      color: var(--success);
+    }
+
+    .stat-value.negative {
+      color: var(--danger);
+    }
+
+    .mini-chart {
+      height: 60px;
+      margin-top: 8px;
+    }
+
+    .ratio-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .ratio-item {
+      text-align: center;
+      padding: 12px 8px;
+      background: var(--bg);
+      border-radius: 10px;
+    }
+
+    .ratio-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .ratio-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .tooltip {
+      position: relative;
+      cursor: help;
+    }
+
+    .tooltip::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--text-main);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      white-space: nowrap;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease;
+      z-index: 100;
+    }
+
+    .tooltip:hover::after {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .trend-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 11px;
+      margin-left: 6px;
+    }
+
+    .trend-indicator.up {
+      color: var(--success);
+    }
+
+    .trend-indicator.down {
+      color: var(--danger);
+    }
+
+    .cash-breakdown {
+      display: flex;
+      gap: 4px;
+      height: 24px;
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 12px 0 8px;
+    }
+
+    .cash-segment {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: #fff;
+      transition: flex 0.3s ease;
+    }
+
+    .cash-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .cash-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .cash-legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+    }
+
+    .ytd-comparison {
+      display: flex;
+      gap: 16px;
+      margin-top: 12px;
+    }
+
+    .ytd-item {
+      flex: 1;
+      text-align: center;
+      padding: 10px;
+      background: var(--bg);
+      border-radius: 8px;
+    }
+
+    .ytd-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .ytd-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .live-indicator {
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    .footer {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 16px;
+    }
+
+    .footer-links a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .footer-links a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div>
+        <div class="header-title">
+          <i class="fas fa-building"></i>
+          Park Terrace Gardens – Financial Dashboard
+        </div>
+        <div class="header-subtitle">
+          Comprehensive financial overview using November 2025 sample data. Real-time data from uploaded financial statements.
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="status-indicator">
+          <span class="live-indicator"></span>
+          Data Current
+        </div>
+        <div class="month-select">
+          <div class="pill">
+            <i class="fas fa-calendar-alt"></i>
+            Month&nbsp;<span>Nov 2025</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Quick Stats Row -->
+    <div class="grid-5">
+      <div class="card card-clickable">
+        <div class="card-title"><i class="fas fa-chart-line"></i> NOI</div>
+        <div class="metric-main success">$77,438</div>
+        <div class="metric-sub">
+          <span class="positive">+$104,421</span> vs budget
+        </div>
+      </div>
+      <div class="card card-clickable">
+        <div class="card-title"><i class="fas fa-wallet"></i> Total Cash</div>
+        <div class="metric-main">$7.12M</div>
+        <div class="metric-sub">
+          <span class="positive">+2.3%</span> from prior month
+        </div>
+      </div>
+      <div class="card card-clickable">
+        <div class="card-title"><i class="fas fa-home"></i> Occupancy</div>
+        <div class="metric-main">96.8%</div>
+        <div class="metric-sub">
+          211 of 218 units occupied
+        </div>
+      </div>
+      <div class="card card-clickable">
+        <div class="card-title"><i class="fas fa-percentage"></i> Collection Rate</div>
+        <div class="metric-main success">98.2%</div>
+        <div class="metric-sub">
+          <span class="positive">↑ 1.4%</span> improving trend
+        </div>
+      </div>
+      <div class="card card-clickable">
+        <div class="card-title"><i class="fas fa-exclamation-triangle"></i> Arrears</div>
+        <div class="metric-main">$75,192</div>
+        <div class="metric-sub">
+          <span class="positive">↓ $8,234</span> from prior month
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI tiles with more detail -->
+    <div class="section-divider"><i class="fas fa-tachometer-alt"></i> Key Performance Indicators</div>
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-dollar-sign"></i> Net Operating Income</div>
+          <div class="card-tag success">Exceeds Budget</div>
+        </div>
+        <div class="metric-main">$77,438</div>
+        <div class="metric-sub">
+          Budget <span class="negative">−$26,983</span> &nbsp;·&nbsp; Variance <span class="positive">+$104,421</span>
+        </div>
+        <div class="metric-badge"><i class="fas fa-arrow-up"></i> Strong month</div>
+        <div class="ytd-comparison">
+          <div class="ytd-item">
+            <div class="ytd-value">$485,230</div>
+            <div class="ytd-label">YTD Actual</div>
+          </div>
+          <div class="ytd-item">
+            <div class="ytd-value">$312,450</div>
+            <div class="ytd-label">YTD Budget</div>
+          </div>
+          <div class="ytd-item">
+            <div class="ytd-value" style="color: var(--success);">+$172,780</div>
+            <div class="ytd-label">YTD Variance</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-university"></i> Cash Position</div>
+          <div class="card-tag">All Accounts</div>
+        </div>
+        <div class="metric-main">$7,117,572</div>
+        <div class="cash-breakdown">
+          <div class="cash-segment" style="flex: 29.4; background: #2563eb;">29%</div>
+          <div class="cash-segment" style="flex: 45.0; background: #059669;">45%</div>
+          <div class="cash-segment" style="flex: 21.5; background: #7c3aed;">22%</div>
+          <div class="cash-segment" style="flex: 4.1; background: #d97706;">4%</div>
+        </div>
+        <div class="cash-legend">
+          <div class="cash-legend-item">
+            <span class="cash-legend-dot" style="background: #2563eb;"></span>
+            Operating $2.09M
+          </div>
+          <div class="cash-legend-item">
+            <span class="cash-legend-dot" style="background: #059669;"></span>
+            Reserve $3.20M
+          </div>
+          <div class="cash-legend-item">
+            <span class="cash-legend-dot" style="background: #7c3aed;"></span>
+            Capital $1.53M
+          </div>
+          <div class="cash-legend-item">
+            <span class="cash-legend-dot" style="background: #d97706;"></span>
+            Security $0.29M
+          </div>
+        </div>
+        <div class="metric-badge info"><i class="fas fa-shield-alt"></i> High liquidity maintained</div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-clock"></i> Accounts Receivable</div>
+          <div class="card-tag">Aging Analysis</div>
+        </div>
+        <div class="metric-main">$75,192</div>
+        <div class="progress-container">
+          <div class="progress-label">
+            <span>Current (0-30 days)</span>
+            <span>$42,108 (56%)</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill success" style="width: 56%;"></div></div>
+        </div>
+        <div class="progress-container">
+          <div class="progress-label">
+            <span>31-60 days</span>
+            <span>$18,234 (24%)</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill warning" style="width: 24%;"></div></div>
+        </div>
+        <div class="progress-container">
+          <div class="progress-label">
+            <span>60+ days</span>
+            <span>$14,850 (20%)</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill danger" style="width: 20%;"></div></div>
+        </div>
+        <div class="metric-badge"><i class="fas fa-chart-line"></i> Collections improving</div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-tools"></i> Operating Expenses</div>
+          <div class="card-tag warning">Watch Items</div>
+        </div>
+        <div class="metric-main">$69,872</div>
+        <div class="stat-row">
+          <span class="stat-label"><i class="fas fa-gavel"></i> Legal</span>
+          <span class="stat-value negative">$23,715 (+469%)</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label"><i class="fas fa-wrench"></i> R&M</span>
+          <span class="stat-value positive">$46,157 (−37%)</span>
+        </div>
+        <div class="metric-badge negative"><i class="fas fa-exclamation-circle"></i> Legal above budget</div>
+      </div>
+    </div>
+
+    <!-- Charts layout -->
+    <div class="section-divider"><i class="fas fa-chart-bar"></i> Financial Trends</div>
+    <div class="layout-2col">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-chart-area"></i> NOI Trend</div>
+          <div class="card-tag">12 Month View</div>
+        </div>
+        <div class="card-body">
+          <div style="margin-bottom:8px;">
+            <span class="legend-pill">
+              <span class="legend-dot"></span> Actual
+            </span>
+            <span class="legend-pill">
+              <span class="legend-dot budget"></span> Budget
+            </span>
+            <span class="legend-pill">
+              <span class="legend-dot ytd"></span> YTD Avg
+            </span>
+          </div>
+          <canvas id="noiTrend"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-chart-pie"></i> Expense Mix</div>
+          <div class="card-tag">November Breakdown</div>
+        </div>
+        <div class="card-body">
+          <canvas id="expensePie"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- New row with more charts -->
+    <div class="layout-3col">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-balance-scale"></i> Budget Variance</div>
+          <div class="card-tag">Key Categories</div>
+        </div>
+        <div class="card-body">
+          <canvas id="varianceBar"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-hand-holding-usd"></i> Cash Flow</div>
+          <div class="card-tag">6 Month Trend</div>
+        </div>
+        <div class="card-body">
+          <canvas id="cashFlowChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-file-invoice-dollar"></i> Arrears Trend</div>
+          <div class="card-tag">Monthly Tracking</div>
+        </div>
+        <div class="card-body">
+          <canvas id="arrearsChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Financial Ratios -->
+    <div class="section-divider"><i class="fas fa-calculator"></i> Financial Health Indicators</div>
+    <div class="layout-2col">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-heartbeat"></i> Key Financial Ratios</div>
+          <div class="card-tag success">Healthy</div>
+        </div>
+        <div class="ratio-grid">
+          <div class="ratio-item tooltip" data-tooltip="Operating Expenses / Gross Revenue">
+            <div class="ratio-value">62.4%</div>
+            <div class="ratio-label">Operating Ratio</div>
+          </div>
+          <div class="ratio-item tooltip" data-tooltip="NOI / Debt Service">
+            <div class="ratio-value">1.85x</div>
+            <div class="ratio-label">DSCR</div>
+          </div>
+          <div class="ratio-item tooltip" data-tooltip="Cash Available / Monthly Expenses">
+            <div class="ratio-value">14.2</div>
+            <div class="ratio-label">Months Reserve</div>
+          </div>
+          <div class="ratio-item tooltip" data-tooltip="Collected / Total Billed">
+            <div class="ratio-value">98.2%</div>
+            <div class="ratio-label">Collection Rate</div>
+          </div>
+        </div>
+        <div class="stat-row" style="margin-top: 12px;">
+          <span class="stat-label">YTD Revenue Growth</span>
+          <span class="stat-value positive">+3.2%</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">YTD Expense Control</span>
+          <span class="stat-value positive">−8.4% under budget</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-piggy-bank"></i> Reserve Fund Status</div>
+          <div class="card-tag">Funding Progress</div>
+        </div>
+        <div class="card-body">
+          <div class="stat-row">
+            <span class="stat-label">Building Reserve</span>
+            <span class="stat-value">$3,200,000</span>
+          </div>
+          <div class="progress-container">
+            <div class="progress-label">
+              <span>Target: $3,500,000</span>
+              <span>91.4%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill success" style="width: 91.4%;"></div></div>
+          </div>
+          
+          <div class="stat-row">
+            <span class="stat-label">Capital Improvement</span>
+            <span class="stat-value">$1,530,000</span>
+          </div>
+          <div class="progress-container">
+            <div class="progress-label">
+              <span>Target: $2,000,000</span>
+              <span>76.5%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" style="width: 76.5%;"></div></div>
+          </div>
+
+          <div class="stat-row">
+            <span class="stat-label">Monthly Contribution</span>
+            <span class="stat-value">$45,000</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alerts and Notes -->
+    <div class="section-divider"><i class="fas fa-bell"></i> Alerts & Insights</div>
+    <div class="layout-2col">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-exclamation-circle"></i> Action Items</div>
+          <div class="card-tag danger">4 Items</div>
+        </div>
+        <div class="card-body">
+          <div class="alert-item danger">
+            <i class="fas fa-gavel"></i>
+            <div class="alert-content">
+              <div class="alert-title">Legal Expenses Over Budget</div>
+              <div class="alert-desc">$23,715 actual vs $4,167 budget (+469%). Review ongoing litigation status.</div>
+            </div>
+          </div>
+          <div class="alert-item warning">
+            <i class="fas fa-file-invoice"></i>
+            <div class="alert-content">
+              <div class="alert-title">Missing Utility Bill</div>
+              <div class="alert-desc">Water/sewer bill not posted this month. Expect catch-up in December.</div>
+            </div>
+          </div>
+          <div class="alert-item warning">
+            <i class="fas fa-money-bill-wave"></i>
+            <div class="alert-content">
+              <div class="alert-title">Deferred Income</div>
+              <div class="alert-desc">Sublet and laundry income delayed due to timing. Will post next month.</div>
+            </div>
+          </div>
+          <div class="alert-item info">
+            <i class="fas fa-info-circle"></i>
+            <div class="alert-content">
+              <div class="alert-title">Insurance Adjustment</div>
+              <div class="alert-desc">$10,000 claim reversal is a one-time adjustment to other income.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-lightbulb"></i> November Highlights</div>
+          <div class="card-tag">Summary</div>
+        </div>
+        <div class="card-body">
+          <div class="alert-item success">
+            <i class="fas fa-check-circle"></i>
+            <div class="alert-content">
+              <div class="alert-title">Strong NOI Performance</div>
+              <div class="alert-desc">Beat budget by $104K driven by favorable utilities and R&M.</div>
+            </div>
+          </div>
+          <div class="alert-item success">
+            <i class="fas fa-chart-line"></i>
+            <div class="alert-content">
+              <div class="alert-title">Collections Improving</div>
+              <div class="alert-desc">Arrears down $8,234 from prior month. Collection rate at 98.2%.</div>
+            </div>
+          </div>
+          <div class="alert-item success">
+            <i class="fas fa-piggy-bank"></i>
+            <div class="alert-content">
+              <div class="alert-title">Reserve Funding On Track</div>
+              <div class="alert-desc">Building reserve at 91.4% of target with consistent contributions.</div>
+            </div>
+          </div>
+          <div class="alert-item info">
+            <i class="fas fa-calendar-check"></i>
+            <div class="alert-content">
+              <div class="alert-title">YTD Performance</div>
+              <div class="alert-desc">$172,780 ahead of budget year-to-date. Strong fiscal health.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detailed Notes -->
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">
+        <div class="card-title"><i class="fas fa-sticky-note"></i> Detailed Notes for November</div>
+        <div class="card-tag">Context & Analysis</div>
+      </div>
+      <div class="card-body">
+        <ul class="notes">
+          <li><strong>Utilities:</strong> No water and sewer bill posted this month ($39,811 typically), making utilities appear unusually favorable. Expect normalization in December.</li>
+          <li><strong>Insurance:</strong> $10,000 insurance claim reversal reduced other income but is a one-time adjustment that won't recur.</li>
+          <li><strong>Deferred Revenue:</strong> Sublet ($2,500) and laundry income ($1,800) did not post in November due to billing cycle timing.</li>
+          <li><strong>Legal Expenses:</strong> Ongoing litigation driving costs significantly above budget. Management reviewing case status and projected timeline.</li>
+          <li><strong>R&M Savings:</strong> Repairs and maintenance came in 37% under budget due to completed capital projects and mild weather conditions.</li>
+          <li><strong>Occupancy:</strong> Seven vacant units undergoing renovation expected to be market-ready by January 2026.</li>
+        </ul>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <div>
+        Last updated: November 30, 2025 at 11:45 AM &nbsp;·&nbsp; Data source: Financial statements
+      </div>
+      <div class="footer-links">
+        <a href="#"><i class="fas fa-download"></i> Export PDF</a>
+        <a href="#"><i class="fas fa-file-excel"></i> Export Excel</a>
+        <a href="#"><i class="fas fa-print"></i> Print</a>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    // Chart.js global defaults
+    Chart.defaults.font.family = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+    Chart.defaults.color = '#6b7280';
+
+    // NOI trend data (12 months)
+    const noiCtx = document.getElementById('noiTrend').getContext('2d');
+    new Chart(noiCtx, {
+      type: 'line',
+      data: {
+        labels: ['Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'],
+        datasets: [
+          {
+            label: 'Actual',
+            data: [42000, 38000, 45000, 52000, 48000, 55000, 61000, 50000, 32000, 15000, 10000, 77438],
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+            tension: 0.3,
+            borderWidth: 2.5,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            fill: true
+          },
+          {
+            label: 'Budget',
+            data: [40000, 35000, 42000, 48000, 45000, 50000, 55000, 45000, 40000, 20000, 15000, -26983],
+            borderColor: '#9ca3af',
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            borderDash: [5, 5]
+          },
+          {
+            label: 'YTD Avg',
+            data: Array(12).fill(44130),
+            borderColor: '#22c55e',
+            backgroundColor: 'transparent',
+            tension: 0,
+            borderWidth: 1.5,
+            pointRadius: 0,
+            borderDash: [2, 2]
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: {
+          intersect: false,
+          mode: 'index'
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1f2933',
+            titleColor: '#fff',
+            bodyColor: '#fff',
+            padding: 12,
+            displayColors: true,
+            callbacks: {
+              label: function(context) {
+                return context.dataset.label + ': $' + context.parsed.y.toLocaleString();
+              }
+            }
+          }
+        },
+        scales: {
+          y: {
+            grid: { color: '#e5e7eb' },
+            ticks: {
+              callback: value => '$' + (value / 1000) + 'K'
+            }
+          },
+          x: {
+            grid: { display: false }
+          }
+        }
+      }
+    });
+
+    // Expense pie chart (doughnut for modern look)
+    const expenseCtx = document.getElementById('expensePie').getContext('2d');
+    new Chart(expenseCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Property Taxes', 'Payroll', 'Debt Service', 'Utilities', 'Repairs & Maint', 'Admin & General', 'Legal'],
+        datasets: [{
+          data: [163668, 90036, 61153, 46576, 46157, 37502, 23715],
+          backgroundColor: [
+            '#003366',
+            '#2563eb',
+            '#7c3aed',
+            '#059669',
+            '#d97706',
+            '#ec4899',
+            '#ef4444'
+          ],
+          borderWidth: 0,
+          hoverOffset: 8
+        }]
+      },
+      options: {
+        responsive: true,
+        cutout: '55%',
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: {
+              boxWidth: 12,
+              padding: 12,
+              font: { size: 11 }
+            }
+          },
+          tooltip: {
+            backgroundColor: '#1f2933',
+            callbacks: {
+              label: function(context) {
+                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                const percentage = ((context.raw / total) * 100).toFixed(1);
+                return context.label + ': $' + context.raw.toLocaleString() + ' (' + percentage + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Variance bar chart - horizontal for better readability
+    const varCtx = document.getElementById('varianceBar').getContext('2d');
+    new Chart(varCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Utilities', 'Repairs & Maint', 'Legal', 'Admin & General', 'Payroll'],
+        datasets: [
+          {
+            label: 'Actual',
+            data: [46576, 46157, 23715, 37502, 90036],
+            backgroundColor: '#2563eb',
+            borderRadius: 4
+          },
+          {
+            label: 'Budget',
+            data: [86387, 73673, 4167, 84999, 95000],
+            backgroundColor: '#d1d5db',
+            borderRadius: 4
+          }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 12 }
+          },
+          tooltip: {
+            backgroundColor: '#1f2933',
+            callbacks: {
+              afterLabel: function(context) {
+                if (context.datasetIndex === 0) {
+                  const budget = context.chart.data.datasets[1].data[context.dataIndex];
+                  const variance = context.raw - budget;
+                  const prefix = variance >= 0 ? '+' : '';
+                  return 'Variance: ' + prefix + '$' + variance.toLocaleString();
+                }
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: '#e5e7eb' },
+            ticks: {
+              callback: value => '$' + (value / 1000) + 'K'
+            }
+          },
+          y: {
+            grid: { display: false }
+          }
+        }
+      }
+    });
+
+    // Cash Flow Chart
+    const cashFlowCtx = document.getElementById('cashFlowChart').getContext('2d');
+    new Chart(cashFlowCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'],
+        datasets: [
+          {
+            label: 'Inflows',
+            data: [520000, 535000, 528000, 542000, 538000, 545000],
+            backgroundColor: '#059669',
+            borderRadius: 4
+          },
+          {
+            label: 'Outflows',
+            data: [-459000, -485000, -496000, -527000, -528000, -467562],
+            backgroundColor: '#ef4444',
+            borderRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 12 }
+          },
+          tooltip: {
+            backgroundColor: '#1f2933',
+            callbacks: {
+              label: function(context) {
+                const value = Math.abs(context.raw);
+                return context.dataset.label + ': $' + value.toLocaleString();
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, stacked: true },
+          y: {
+            grid: { color: '#e5e7eb' },
+            stacked: true,
+            ticks: {
+              callback: value => '$' + (value / 1000) + 'K'
+            }
+          }
+        }
+      }
+    });
+
+    // Arrears Trend Chart
+    const arrearsCtx = document.getElementById('arrearsChart').getContext('2d');
+    new Chart(arrearsCtx, {
+      type: 'line',
+      data: {
+        labels: ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'],
+        datasets: [
+          {
+            label: 'Total Arrears',
+            data: [92000, 88500, 85200, 81000, 83426, 75192],
+            borderColor: '#ef4444',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            tension: 0.3,
+            borderWidth: 2.5,
+            pointRadius: 4,
+            fill: true
+          },
+          {
+            label: 'Target',
+            data: Array(6).fill(60000),
+            borderColor: '#22c55e',
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            pointRadius: 0,
+            borderDash: [4, 4]
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 12 }
+          },
+          tooltip: {
+            backgroundColor: '#1f2933',
+            callbacks: {
+              label: function(context) {
+                return context.dataset.label + ': $' + context.parsed.y.toLocaleString();
+              }
+            }
+          }
+        },
+        scales: {
+          y: {
+            grid: { color: '#e5e7eb' },
+            ticks: {
+              callback: value => '$' + (value / 1000) + 'K'
+            }
+          },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  </script>
+</body>
+</html>

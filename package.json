@@ -1,0 +1,30 @@
+{
+  "name": "ptg-financial-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "^14",
+    "react": "^18",
+    "react-dom": "^18",
+    "next-auth": "^4.24.7",
+    "bcryptjs": "^2.4.3",
+    "chart.js": "^4.4.1",
+    "react-chartjs-2": "^5.2.0",
+    "lucide-react": "^0.400.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5",
+    "eslint": "^8",
+    "eslint-config-next": "^14"
+  }
+}
