@@ -151,6 +151,12 @@ export default function DashboardPage() {
     return `$${value.toLocaleString()}`
   }
 
+  const formatPercent = (value: number) => `${value.toFixed(1)}%`
+
+  const cashBreakdown = monthData.cash.breakdown
+  const totalCash = monthData.cash.total
+  const arrearsAging = monthData.collections?.aging
+
   return (
     <div className="page">
       {/* Header */}
@@ -253,6 +259,59 @@ export default function DashboardPage() {
       {/* Overview Tab */}
       {activeTab === 'overview' && (
         <>
+          {/* Quick Stats Row (restored) */}
+          <div className="grid-5" style={{ marginBottom: 20 }}>
+            <div className="card card-clickable">
+              <div className="card-title"><i className="fas fa-chart-line"></i> NOI</div>
+              <div className={`metric-main ${monthData.noi.actual >= 0 ? 'success' : 'danger'}`}>{formatCurrency(monthData.noi.actual)}</div>
+              <div className="metric-sub">
+                <span className={monthData.noi.variance >= 0 ? 'positive' : 'negative'}>
+                  {monthData.noi.variance >= 0 ? '+' : ''}{formatCurrency(monthData.noi.variance)}
+                </span> vs budget
+              </div>
+            </div>
+
+            <div className="card card-clickable">
+              <div className="card-title"><i className="fas fa-wallet"></i> Total Cash</div>
+              <div className="metric-main">{formatCurrency(monthData.cash.total)}</div>
+              <div className="metric-sub">
+                Operating <span>{formatCurrency(monthData.cash.operating)}</span>
+              </div>
+            </div>
+
+            <div className="card card-clickable">
+              <div className="card-title"><i className="fas fa-home"></i> Occupancy</div>
+              <div className="metric-main">{monthData.occupancy ? formatPercent(monthData.occupancy.rate) : '—'}</div>
+              <div className="metric-sub">
+                {monthData.occupancy ? `${monthData.occupancy.occupied} of ${monthData.occupancy.totalUnits} units occupied` : 'Occupancy data unavailable'}
+              </div>
+            </div>
+
+            <div className="card card-clickable">
+              <div className="card-title"><i className="fas fa-percentage"></i> Collection Rate</div>
+              <div className={`metric-main ${monthData.collections && monthData.collections.rate >= 97 ? 'success' : ''}`}>{monthData.collections ? formatPercent(monthData.collections.rate) : '—'}</div>
+              <div className="metric-sub">
+                {monthData.collections ? (
+                  <>
+                    <span className={monthData.collections.trendPct >= 0 ? 'positive' : 'negative'}>
+                      {monthData.collections.trendPct >= 0 ? '↑ ' : '↓ '}{Math.abs(monthData.collections.trendPct).toFixed(1)}%
+                    </span>{' '}trend
+                  </>
+                ) : 'Collection data unavailable'}
+              </div>
+            </div>
+
+            <div className="card card-clickable">
+              <div className="card-title"><i className="fas fa-exclamation-triangle"></i> Arrears</div>
+              <div className="metric-main">{formatCurrency(monthData.arrears.amount)}</div>
+              <div className="metric-sub">
+                <span className={monthData.arrears.trend === 'down' ? 'positive' : monthData.arrears.trend === 'up' ? 'negative' : ''}>
+                  {monthData.arrears.trend === 'down' ? '↓' : monthData.arrears.trend === 'up' ? '↑' : '→'}
+                </span>{' '}{monthData.arrears.note}
+              </div>
+            </div>
+          </div>
+
           {/* KPI Grid */}
           <div className="grid">
             <div className="card">
@@ -293,6 +352,30 @@ export default function DashboardPage() {
                 &nbsp; • &nbsp;
                 Reserves <span>{formatCurrency(monthData.cash.reserves)}</span>
               </div>
+              {cashBreakdown && (
+                <>
+                  <div className="cash-breakdown">
+                    <div className="cash-segment" style={{ flex: (cashBreakdown.operating / totalCash) * 100, background: '#2563eb' }}>
+                      {Math.round((cashBreakdown.operating / totalCash) * 100)}%
+                    </div>
+                    <div className="cash-segment" style={{ flex: (cashBreakdown.reserve / totalCash) * 100, background: '#059669' }}>
+                      {Math.round((cashBreakdown.reserve / totalCash) * 100)}%
+                    </div>
+                    <div className="cash-segment" style={{ flex: (cashBreakdown.capital / totalCash) * 100, background: '#7c3aed' }}>
+                      {Math.round((cashBreakdown.capital / totalCash) * 100)}%
+                    </div>
+                    <div className="cash-segment" style={{ flex: (cashBreakdown.security / totalCash) * 100, background: '#d97706' }}>
+                      {Math.round((cashBreakdown.security / totalCash) * 100)}%
+                    </div>
+                  </div>
+                  <div className="cash-legend">
+                    <div className="cash-legend-item"><span className="cash-legend-dot" style={{ background: '#2563eb' }}></span>Operating {formatCurrency(cashBreakdown.operating)}</div>
+                    <div className="cash-legend-item"><span className="cash-legend-dot" style={{ background: '#059669' }}></span>Reserve {formatCurrency(cashBreakdown.reserve)}</div>
+                    <div className="cash-legend-item"><span className="cash-legend-dot" style={{ background: '#7c3aed' }}></span>Capital {formatCurrency(cashBreakdown.capital)}</div>
+                    <div className="cash-legend-item"><span className="cash-legend-dot" style={{ background: '#d97706' }}></span>Security {formatCurrency(cashBreakdown.security)}</div>
+                  </div>
+                </>
+              )}
               <div className="metric-badge info">
                 <i className="fas fa-check-circle"></i>
                 High Liquidity
@@ -311,6 +394,37 @@ export default function DashboardPage() {
               <div className="metric-sub">
                 {monthData.arrears.note}
               </div>
+              {arrearsAging && (
+                <>
+                  <div className="progress-container">
+                    <div className="progress-label">
+                      <span>Current (0-30 days)</span>
+                      <span>{formatCurrency(arrearsAging.current0to30)}</span>
+                    </div>
+                    <div className="progress-bar">
+                      <div className="progress-fill success" style={{ width: `${Math.min(100, (arrearsAging.current0to30 / monthData.arrears.amount) * 100)}%` }}></div>
+                    </div>
+                  </div>
+                  <div className="progress-container">
+                    <div className="progress-label">
+                      <span>31-60 days</span>
+                      <span>{formatCurrency(arrearsAging.days31to60)}</span>
+                    </div>
+                    <div className="progress-bar">
+                      <div className="progress-fill warning" style={{ width: `${Math.min(100, (arrearsAging.days31to60 / monthData.arrears.amount) * 100)}%` }}></div>
+                    </div>
+                  </div>
+                  <div className="progress-container">
+                    <div className="progress-label">
+                      <span>60+ days</span>
+                      <span>{formatCurrency(arrearsAging.days60plus)}</span>
+                    </div>
+                    <div className="progress-bar">
+                      <div className="progress-fill danger" style={{ width: `${Math.min(100, (arrearsAging.days60plus / monthData.arrears.amount) * 100)}%` }}></div>
+                    </div>
+                  </div>
+                </>
+              )}
               <div className={`metric-badge ${monthData.arrears.trend === 'down' ? '' : 'warning'}`}>
                 <i className={`fas fa-arrow-${monthData.arrears.trend}`}></i>
                 Trending {monthData.arrears.trend === 'down' ? 'Down' : monthData.arrears.trend === 'up' ? 'Up' : 'Stable'}
@@ -337,6 +451,86 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* Financial Health + Reserves (restored) */}
+          {(monthData.ratios || monthData.reservesStatus) && (
+            <>
+              <div className="section-divider"><i className="fas fa-calculator"></i> Financial Health Indicators</div>
+              <div className="layout-2col">
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title"><i className="fas fa-heartbeat"></i> Key Financial Ratios</div>
+                    <div className="card-tag success">Snapshot</div>
+                  </div>
+                  <div className="ratio-grid">
+                    <div className="ratio-item">
+                      <div className="ratio-value">{monthData.ratios ? `${monthData.ratios.operatingRatioPct.toFixed(1)}%` : '—'}</div>
+                      <div className="ratio-label">Operating Ratio</div>
+                    </div>
+                    <div className="ratio-item">
+                      <div className="ratio-value">{monthData.ratios ? `${monthData.ratios.dscr.toFixed(2)}x` : '—'}</div>
+                      <div className="ratio-label">DSCR</div>
+                    </div>
+                    <div className="ratio-item">
+                      <div className="ratio-value">{monthData.ratios ? `${monthData.ratios.monthsReserve.toFixed(1)}` : '—'}</div>
+                      <div className="ratio-label">Months Reserve</div>
+                    </div>
+                    <div className="ratio-item">
+                      <div className="ratio-value">{monthData.ratios ? `${monthData.ratios.collectionRatePct.toFixed(1)}%` : '—'}</div>
+                      <div className="ratio-label">Collection Rate</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title"><i className="fas fa-piggy-bank"></i> Reserve Fund Status</div>
+                    <div className="card-tag">Funding Progress</div>
+                  </div>
+                  <div className="card-body">
+                    {monthData.reservesStatus ? (
+                      <>
+                        <div className="stat-row">
+                          <span className="stat-label">Building Reserve</span>
+                          <span className="stat-value">{formatCurrency(monthData.reservesStatus.buildingReserve.current)}</span>
+                        </div>
+                        <div className="progress-container">
+                          <div className="progress-label">
+                            <span>Target: {formatCurrency(monthData.reservesStatus.buildingReserve.target)}</span>
+                            <span>{Math.round((monthData.reservesStatus.buildingReserve.current / monthData.reservesStatus.buildingReserve.target) * 100)}%</span>
+                          </div>
+                          <div className="progress-bar">
+                            <div className="progress-fill success" style={{ width: `${Math.min(100, (monthData.reservesStatus.buildingReserve.current / monthData.reservesStatus.buildingReserve.target) * 100)}%` }}></div>
+                          </div>
+                        </div>
+
+                        <div className="stat-row" style={{ marginTop: 10 }}>
+                          <span className="stat-label">Capital Improvement</span>
+                          <span className="stat-value">{formatCurrency(monthData.reservesStatus.capitalImprovement.current)}</span>
+                        </div>
+                        <div className="progress-container">
+                          <div className="progress-label">
+                            <span>Target: {formatCurrency(monthData.reservesStatus.capitalImprovement.target)}</span>
+                            <span>{Math.round((monthData.reservesStatus.capitalImprovement.current / monthData.reservesStatus.capitalImprovement.target) * 100)}%</span>
+                          </div>
+                          <div className="progress-bar">
+                            <div className="progress-fill" style={{ width: `${Math.min(100, (monthData.reservesStatus.capitalImprovement.current / monthData.reservesStatus.capitalImprovement.target) * 100)}%` }}></div>
+                          </div>
+                        </div>
+
+                        <div className="stat-row" style={{ marginTop: 10 }}>
+                          <span className="stat-label">Monthly Contribution</span>
+                          <span className="stat-value">{formatCurrency(monthData.reservesStatus.monthlyContribution)}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Reserve status unavailable for this month.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Charts */}
           <div className="layout-2col">
@@ -424,6 +618,50 @@ export default function DashboardPage() {
               </ul>
             </div>
           </div>
+
+          {/* Alerts & Highlights (restored) */}
+          {(monthData.alerts?.length || monthData.highlights?.length) && (
+            <>
+              <div className="section-divider"><i className="fas fa-bell"></i> Alerts & Insights</div>
+              <div className="layout-2col">
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title"><i className="fas fa-exclamation-circle"></i> Action Items</div>
+                    <div className="card-tag danger">{monthData.alerts?.length ?? 0} Items</div>
+                  </div>
+                  <div className="card-body">
+                    {(monthData.alerts || []).map((a, idx) => (
+                      <div key={idx} className={`alert-item ${a.type}`}>
+                        <i className={`fas fa-${a.icon}`}></i>
+                        <div className="alert-content">
+                          <div className="alert-title">{a.title}</div>
+                          <div className="alert-desc">{a.description}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title"><i className="fas fa-lightbulb"></i> Highlights</div>
+                    <div className="card-tag">Summary</div>
+                  </div>
+                  <div className="card-body">
+                    {(monthData.highlights || []).map((h, idx) => (
+                      <div key={idx} className={`alert-item ${h.type}`}>
+                        <i className={`fas fa-${h.icon}`}></i>
+                        <div className="alert-content">
+                          <div className="alert-title">{h.title}</div>
+                          <div className="alert-desc">{h.description}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
 
