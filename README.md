@@ -29,6 +29,7 @@ Create a `.env.local` file with:
 
 ```env
 NEXTAUTH_SECRET=your-secret-key-here
+# Optional: NextAuth can infer from the request host; if you set this, keep it in sync with your current URL/port.
 NEXTAUTH_URL=http://localhost:3000
 OPENAI_API_KEY=your-openai-api-key
 ```

@@ -4,10 +4,17 @@ import { useState, Suspense } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
+function safeCallbackPath(raw: string | null): string {
+  if (!raw) return '/dashboard'
+  // Only allow same-site relative paths to avoid open redirects and host/port mismatches.
+  if (raw.startsWith('/') && !raw.startsWith('//')) return raw
+  return '/dashboard'
+}
+
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
+  const callbackPath = safeCallbackPath(searchParams.get('callbackUrl'))
   
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -20,19 +27,22 @@ function LoginForm() {
     setLoading(true)
 
     try {
+      const absoluteCallbackUrl =
+        typeof window !== 'undefined' ? new URL(callbackPath, window.location.origin).toString() : callbackPath
       const result = await signIn('credentials', {
         email,
         password,
+        callbackUrl: absoluteCallbackUrl,
         redirect: false,
       })
 
       if (result?.error) {
         setError(result.error)
       } else {
-        router.push(callbackUrl)
+        router.push(callbackPath)
         router.refresh()
       }
-    } catch (err) {
+    } catch {
       setError('An unexpected error occurred')
     } finally {
       setLoading(false)
@@ -41,18 +51,21 @@ function LoginForm() {
 
   const handleDemoLogin = async (role: 'admin' | 'manager' | 'viewer') => {
     const credentials = {
-      admin: { email: 'admin@ptgfinancial.com', password: 'admin123' },
-      manager: { email: 'manager@ptgfinancial.com', password: 'manager123' },
-      viewer: { email: 'viewer@ptgfinancial.com', password: 'viewer123' },
+      admin: { email: 'admin@ptgfinancial.com', password: 'PJM315g!' },
+      manager: { email: 'manager@ptgfinancial.com', password: 'PJM315g!' },
+      viewer: { email: 'viewer@ptgfinancial.com', password: 'PJM315g!' },
     }
 
     setEmail(credentials[role].email)
     setPassword(credentials[role].password)
     setLoading(true)
 
+    const absoluteCallbackUrl =
+      typeof window !== 'undefined' ? new URL(callbackPath, window.location.origin).toString() : callbackPath
     const result = await signIn('credentials', {
       email: credentials[role].email,
       password: credentials[role].password,
+      callbackUrl: absoluteCallbackUrl,
       redirect: false,
     })
 
@@ -60,7 +73,7 @@ function LoginForm() {
       setError(result.error)
       setLoading(false)
     } else {
-      router.push(callbackUrl)
+      router.push(callbackPath)
       router.refresh()
     }
   }
@@ -130,27 +143,24 @@ function LoginForm() {
 
       <div className="demo-credentials">
         <p><strong>Demo Accounts</strong> - Click to auto-login:</p>
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'center' }}>
+        <div className="demo-buttons">
           <button 
             onClick={() => handleDemoLogin('admin')} 
-            className="btn btn-secondary"
-            style={{ padding: '8px 12px', fontSize: 12 }}
+            className="btn btn-secondary btn-sm"
             disabled={loading}
           >
             <i className="fas fa-user-shield"></i> Admin
           </button>
           <button 
             onClick={() => handleDemoLogin('manager')} 
-            className="btn btn-secondary"
-            style={{ padding: '8px 12px', fontSize: 12 }}
+            className="btn btn-secondary btn-sm"
             disabled={loading}
           >
             <i className="fas fa-user-tie"></i> Manager
           </button>
           <button 
             onClick={() => handleDemoLogin('viewer')} 
-            className="btn btn-secondary"
-            style={{ padding: '8px 12px', fontSize: 12 }}
+            className="btn btn-secondary btn-sm"
             disabled={loading}
           >
             <i className="fas fa-user"></i> Viewer

@@ -11,6 +11,11 @@ coverage/
 out/
 build/
 
+# Local data / scratch
+.data/
+.tmp-test-pdfs/
+.vercel-bypass-secret
+
 # Misc
 .DS_Store
 *.pem

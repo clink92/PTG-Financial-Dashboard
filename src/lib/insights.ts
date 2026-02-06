@@ -1,4 +1,4 @@
-import { MonthlyData } from './data';
+import type { MonthlyData } from './data'
 
 export interface AIInsight {
   id: string;
@@ -10,140 +10,151 @@ export interface AIInsight {
 }
 
 export function generateInsights(data: MonthlyData): AIInsight[] {
-  const insights: AIInsight[] = [];
-  
-  // NOI Analysis
-  if (data.noi.variance > 0) {
-    insights.push({
-      id: 'noi-positive',
-      type: 'positive',
-      title: 'Strong NOI Performance',
-      description: `Net Operating Income exceeded budget by $${data.noi.variance.toLocaleString()}. This represents a ${Math.round((data.noi.variance / Math.abs(data.noi.budget)) * 100)}% favorable variance.`,
-      metric: `+$${data.noi.variance.toLocaleString()}`,
-      recommendation: 'Consider allocating excess funds to reserve accounts or capital improvement projects.'
-    });
-  } else if (data.noi.variance < -10000) {
-    insights.push({
-      id: 'noi-negative',
-      type: 'negative',
-      title: 'NOI Below Budget',
-      description: `Net Operating Income is $${Math.abs(data.noi.variance).toLocaleString()} below budget. Review expense categories for cost reduction opportunities.`,
-      metric: `-$${Math.abs(data.noi.variance).toLocaleString()}`,
-      recommendation: 'Analyze top expense variances and implement corrective measures before year end.'
-    });
+  const insights: AIInsight[] = []
+
+  const noi = data.noi
+  const cash = data.cash
+  const recv = data.receivables
+  const income = data.incomeStatement
+  const bank = data.bankReconciliation
+
+  // NOI Analysis (only if we have a budget comparison)
+  if (typeof noi?.variance === 'number' && typeof noi?.budget === 'number') {
+    if (noi.variance > 0) {
+      insights.push({
+        id: 'noi-positive',
+        type: 'positive',
+        title: 'Strong NOI Performance',
+        description: `Net Operating Income exceeded budget by $${noi.variance.toLocaleString()}.`,
+        metric: `+$${noi.variance.toLocaleString()}`,
+        recommendation: 'Consider allocating excess funds to reserve accounts or planned capital items.'
+      })
+    } else if (noi.variance < 0) {
+      insights.push({
+        id: 'noi-negative',
+        type: 'warning',
+        title: 'NOI Below Budget',
+        description: `Net Operating Income is $${Math.abs(noi.variance).toLocaleString()} below budget.`,
+        metric: `-$${Math.abs(noi.variance).toLocaleString()}`,
+        recommendation: 'Review the financial statements for the largest differences from budget and confirm timing items.'
+      })
+    }
   }
 
-  // Cash Position Analysis
-  const cashRatio = data.cash.operating / (data.expenses.payroll + data.expenses.utilities + data.expenses.repairsMaint);
-  if (cashRatio > 3) {
+  // Expense ratio (if totals exist)
+  if (typeof income?.totalIncome === 'number' && typeof income?.totalExpenses === 'number' && income.totalIncome !== 0) {
+    const expenseRatio = income.totalExpenses / income.totalIncome
     insights.push({
-      id: 'cash-strong',
-      type: 'positive',
-      title: 'Excellent Liquidity Position',
-      description: `Operating cash of $${(data.cash.operating / 1000000).toFixed(2)}M provides ${cashRatio.toFixed(1)} months of operating expense coverage.`,
-      metric: `${cashRatio.toFixed(1)}x coverage`,
-      recommendation: 'Strong position allows for planned capital projects or investment in yield-bearing accounts.'
-    });
+      id: 'expense-ratio',
+      type: expenseRatio > 0.95 ? 'warning' : 'neutral',
+      title: 'Expense Ratio',
+      description: `Total expenses are ${(expenseRatio * 100).toFixed(1)}% of total income.`,
+      metric: `${(expenseRatio * 100).toFixed(1)}%`,
+      recommendation: expenseRatio > 0.95 ? 'Review large operating expense categories and confirm any one-time items.' : undefined,
+    })
   }
 
-  // Arrears Analysis
-  if (data.arrears.trend === 'down') {
+  // Cash Position (only if we have operating + total)
+  if (typeof cash?.total === 'number') {
     insights.push({
-      id: 'arrears-improving',
-      type: 'positive',
-      title: 'Collections Improving',
-      description: `Arrears trending down to $${data.arrears.amount.toLocaleString()}. ${data.arrears.note}`,
-      metric: 'Trending ↓',
-      recommendation: 'Continue current collection strategies and maintain tenant communication.'
-    });
-  } else if (data.arrears.amount > 100000) {
-    insights.push({
-      id: 'arrears-high',
-      type: 'warning',
-      title: 'Elevated Arrears Level',
-      description: `Current arrears of $${data.arrears.amount.toLocaleString()} require attention.`,
-      metric: `$${data.arrears.amount.toLocaleString()}`,
-      recommendation: 'Review aging report and consider accelerated collection procedures for accounts over 60 days.'
-    });
-  }
-
-  // Expense Analysis
-  const legalVariance = data.expenses.legal - data.budgets.legal;
-  if (legalVariance > 10000) {
-    insights.push({
-      id: 'legal-over',
-      type: 'negative',
-      title: 'Legal Expenses Over Budget',
-      description: `Legal costs of $${data.expenses.legal.toLocaleString()} exceed budget by $${legalVariance.toLocaleString()} (${Math.round((legalVariance / data.budgets.legal) * 100)}% over).`,
-      metric: `+$${legalVariance.toLocaleString()}`,
-      recommendation: 'Review active cases and consider alternative dispute resolution methods where appropriate.'
-    });
-  }
-
-  const utilitiesVariance = data.expenses.utilities - data.budgets.utilities;
-  if (utilitiesVariance < -20000) {
-    insights.push({
-      id: 'utilities-under',
-      type: 'positive',
-      title: 'Utilities Under Budget',
-      description: `Utility costs of $${data.expenses.utilities.toLocaleString()} are $${Math.abs(utilitiesVariance).toLocaleString()} below budget.`,
-      metric: `-$${Math.abs(utilitiesVariance).toLocaleString()}`,
-      recommendation: 'Verify all bills have been posted. If savings are real, document energy efficiency initiatives.'
-    });
-  }
-
-  // R&M Analysis
-  const rmVariance = data.expenses.repairsMaint - data.budgets.repairsMaint;
-  if (rmVariance < -20000) {
-    insights.push({
-      id: 'rm-under',
+      id: 'cash-position',
       type: 'neutral',
-      title: 'R&M Spending Below Budget',
-      description: `Repairs & Maintenance of $${data.expenses.repairsMaint.toLocaleString()} is $${Math.abs(rmVariance).toLocaleString()} under budget.`,
-      metric: `-$${Math.abs(rmVariance).toLocaleString()}`,
-      recommendation: 'Ensure preventive maintenance is not being deferred. Review capital plan for upcoming needs.'
-    });
+      title: 'Cash Position',
+      description: `Total cash and cash equivalents are $${cash.total.toLocaleString()}.`,
+      metric: `$${(cash.total / 1_000_000).toFixed(2)}M`,
+    })
   }
 
-  // Admin & General Analysis
-  const adminVariance = data.expenses.adminGeneral - data.budgets.adminGeneral;
-  if (adminVariance < -30000) {
+  // Cash composition
+  if (typeof cash?.total === 'number' && typeof cash?.operating === 'number' && cash.total > 0) {
+    const operatingPct = cash.operating / cash.total
     insights.push({
-      id: 'admin-under',
-      type: 'positive',
-      title: 'Administrative Costs Well Controlled',
-      description: `Admin & General expenses are $${Math.abs(adminVariance).toLocaleString()} below budget.`,
-      metric: `-$${Math.abs(adminVariance).toLocaleString()}`,
-      recommendation: 'Good cost control. Continue monitoring for any deferred expenses.'
-    });
+      id: 'cash-composition',
+      type: operatingPct < 0.25 ? 'warning' : 'neutral',
+      title: 'Cash Composition',
+      description: `Operating cash represents ${(operatingPct * 100).toFixed(0)}% of total cash.`,
+      metric: `${(operatingPct * 100).toFixed(0)}%`,
+      recommendation: operatingPct < 0.25 ? 'Confirm reserve restrictions and ensure operating liquidity is sufficient for upcoming payables.' : undefined,
+    })
   }
 
-  // Reserve Analysis
-  const reserveRatio = data.cash.reserves / data.cash.total;
-  if (reserveRatio > 0.6) {
+  if (typeof recv?.total === 'number') {
+    const over60plus = (recv.over60 ?? 0) + (recv.over90 ?? 0)
+    const pctOver60 = recv.total > 0 ? over60plus / recv.total : 0
     insights.push({
-      id: 'reserves-healthy',
-      type: 'positive',
-      title: 'Healthy Reserve Position',
-      description: `Reserves of $${(data.cash.reserves / 1000000).toFixed(2)}M represent ${Math.round(reserveRatio * 100)}% of total cash.`,
-      metric: `${Math.round(reserveRatio * 100)}%`,
-      recommendation: 'Well positioned for planned capital expenditures and unexpected repairs.'
-    });
+      id: 'receivables-total',
+      type: recv.total > 100_000 || pctOver60 > 0.2 ? 'warning' : 'neutral',
+      title: 'Accounts Receivable (A/R)',
+      description: `Total A/R is $${recv.total.toLocaleString()} based on the aging summary in the financial statements PDF.`,
+      metric: `$${recv.total.toLocaleString()}`,
+      recommendation: recv.total > 100_000 || pctOver60 > 0.2 ? 'Review accounts over 60/90 days and verify collections status.' : undefined,
+    })
+
+    if (recv.total > 0 && over60plus > 0) {
+      insights.push({
+        id: 'receivables-aging',
+        type: pctOver60 > 0.2 ? 'warning' : 'neutral',
+        title: 'Past-Due Concentration',
+        description: `$${over60plus.toLocaleString()} of A/R is over 60 days past due (${(pctOver60 * 100).toFixed(0)}%).`,
+        metric: `${(pctOver60 * 100).toFixed(0)}%`,
+        recommendation: pctOver60 > 0.2 ? 'Prioritize follow-ups on the largest over-60 balances and confirm payment plans.' : undefined,
+      })
+    }
   }
 
-  return insights;
+  // Bank reconciliation signals
+  if (typeof bank?.reconcilingItemsNet === 'number') {
+    const magnitude = Math.abs(bank.reconcilingItemsNet)
+    insights.push({
+      id: 'bank-recon-items',
+      type: magnitude > 50_000 ? 'warning' : 'neutral',
+      title: 'Bank Reconciliation Items',
+      description: `Reconciling items net to $${bank.reconcilingItemsNet.toLocaleString()}.`,
+      metric: `$${bank.reconcilingItemsNet.toLocaleString()}`,
+      recommendation: magnitude > 50_000 ? 'Review outstanding checks and deposits in transit to ensure timely clearing.' : undefined,
+    })
+  }
+
+  if (!insights.length) {
+    insights.push({
+      id: 'insufficient-data',
+      type: 'neutral',
+      title: 'Insufficient Data for Insights',
+      description: 'Upload the monthly Financial Statements (FS) PDF to generate AI insights grounded in the document.',
+    })
+  }
+
+  return insights
 }
 
 // Mock AI analysis for when OpenAI is not configured
 export function generateAISummary(data: MonthlyData): string {
-  const variance = data.noi.variance;
-  const month = data.month;
-  
-  if (variance > 50000) {
-    return `${month} shows exceptional financial performance with NOI exceeding budget by over $${(variance / 1000).toFixed(0)}K. The favorable variance is driven primarily by controlled operating expenses. Key areas to monitor include legal costs which remain elevated, while utilities show significant savings. Overall liquidity remains strong with adequate reserves for planned capital projects.`;
-  } else if (variance > 0) {
-    return `${month} delivered positive results with NOI slightly above budget. Operating expenses are generally in line with expectations. Cash position remains healthy with sufficient operating funds and reserve balances. Continue monitoring collection efforts as arrears management shows improvement.`;
-  } else {
-    return `${month} shows NOI below budget by $${Math.abs(variance / 1000).toFixed(0)}K. Review expense categories for optimization opportunities. Focus areas include utilities and repairs & maintenance. Recommend monthly variance analysis meetings to address emerging trends before year-end close.`;
+  const label = data.month && data.year ? `${data.month} ${data.year}` : data.label
+  const noiDelta = data.noi?.variance
+  const cashTotal = data.cash?.total
+
+  if (typeof noiDelta === 'number') {
+    if (noiDelta > 0) {
+      return (
+        `${label} shows NOI above budget by $${noiDelta.toLocaleString()}.` +
+        (typeof cashTotal === 'number' ? ` Total cash is $${cashTotal.toLocaleString()}.` : '')
+      )
+    }
+    if (noiDelta < 0) {
+      return (
+        `${label} shows NOI below budget by $${Math.abs(noiDelta).toLocaleString()}.` +
+        (typeof cashTotal === 'number' ? ` Total cash is $${cashTotal.toLocaleString()}.` : '')
+      )
+    }
+    return (
+      `${label} shows NOI on budget.` +
+      (typeof cashTotal === 'number' ? ` Total cash is $${cashTotal.toLocaleString()}.` : '')
+    )
   }
+
+  if (typeof cashTotal === 'number') {
+    return `${label} cash position: $${cashTotal.toLocaleString()} total cash and cash equivalents.`
+  }
+
+  return `${label} has no imported PDF data yet. Upload the monthly Financial Statements (FS) PDF to populate the dashboard.`
 }

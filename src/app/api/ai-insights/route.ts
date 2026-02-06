@@ -7,50 +7,47 @@ export async function POST(req: NextRequest) {
     // Return intelligent mock insights based on the data
     const insights = []
 
-    // NOI Analysis
-    if (monthData.noi.variance > 0) {
+    const noi = monthData?.noi
+    const cash = monthData?.cash
+    const receivables = monthData?.receivables
+
+    // NOI Analysis (only if variance exists)
+    if (typeof noi?.variance === 'number' && noi.variance > 0) {
       insights.push({
         title: 'Strong NOI Performance',
-        text: `This month's NOI of $${monthData.noi.actual.toLocaleString()} exceeded budget by $${monthData.noi.variance.toLocaleString()}. This represents a ${Math.round((monthData.noi.variance / Math.abs(monthData.noi.budget || 1)) * 100)}% favorable variance and solid financial management.`,
+        text: `This month's NOI exceeded budget by $${noi.variance.toLocaleString()}.`,
         type: 'positive'
+      })
+    } else if (typeof noi?.variance === 'number') {
+      insights.push({
+        title: 'NOI Below Target',
+        text: `This month's NOI came in $${Math.abs(noi.variance).toLocaleString()} below budget.`,
+        type: 'warning'
       })
     } else {
       insights.push({
-        title: 'NOI Below Target',
-        text: `This month's NOI of $${monthData.noi.actual.toLocaleString()} came in $${Math.abs(monthData.noi.variance).toLocaleString()} below budget. Review expense categories for optimization opportunities.`,
-        type: 'warning'
+        title: 'NOI Not Available',
+        text: 'NOI could not be extracted from the uploaded PDFs for this month.',
+        type: 'neutral'
       })
     }
 
     // Cash Position
-    insights.push({
-      title: 'Cash Position Analysis',
-      text: `Total cash reserves of $${(monthData.cash.total / 1000000).toFixed(2)}M provide approximately ${Math.round(monthData.cash.total / 500000)} months of operating runway. Operating cash of $${(monthData.cash.operating / 1000000).toFixed(2)}M covers near-term obligations.`,
-      type: 'neutral'
-    })
-
-    // Legal expenses
-    const legalOverBudget = monthData.expenses.legal - monthData.budgets.legal
-    if (legalOverBudget > 0) {
+    if (typeof cash?.total === 'number') {
       insights.push({
-        title: 'Legal Expense Alert',
-        text: `Legal expenses at $${monthData.expenses.legal.toLocaleString()} exceed budget by $${legalOverBudget.toLocaleString()} (${Math.round((legalOverBudget / monthData.budgets.legal) * 100)}% over). Consider reviewing active cases and alternative dispute resolution options.`,
-        type: 'warning'
-      })
-    } else {
-      insights.push({
-        title: 'Legal Costs Controlled',
-        text: `Legal expenses of $${monthData.expenses.legal.toLocaleString()} are within budget parameters. Continue monitoring active cases to maintain this favorable position.`,
-        type: 'positive'
+        title: 'Cash Position',
+        text: `Total cash and cash equivalents: $${cash.total.toLocaleString()}.`,
+        type: 'neutral'
       })
     }
 
-    // Collections recommendation
-    insights.push({
-      title: 'Collections Recommendation',
-      text: `With arrears at $${monthData.arrears.amount.toLocaleString()} and trending ${monthData.arrears.trend}, ${monthData.arrears.trend === 'down' ? 'current collection strategies are working well. Maintain focus on accounts over 60 days.' : 'consider implementing automated payment reminders and early intervention protocols to improve collection rates.'}`,
-      type: monthData.arrears.trend === 'down' ? 'positive' : 'recommendation'
-    })
+    if (typeof receivables?.total === 'number') {
+      insights.push({
+        title: 'Accounts Receivable (A/R)',
+        text: `Total A/R: $${receivables.total.toLocaleString()} (from aging summary).`,
+        type: receivables.total > 100000 ? 'warning' : 'neutral'
+      })
+    }
 
     return NextResponse.json({ insights })
   } catch (error) {
