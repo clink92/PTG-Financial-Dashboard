@@ -15,9 +15,20 @@ export interface MonthlyData {
     // New: Full breakdown with actual/budget/variance
     totalRevenue?: { actual: number; budget: number; variance: number }
     totalOperatingExpenses?: { actual: number; budget: number; variance: number }
+    sections?: Array<{
+      sectionKey: string
+      label: string
+      kind: 'revenue' | 'expense'
+      actual: number
+      budget: number
+      delta: number
+      order: number
+      source: 'fs-subtotal' | 'computed'
+    }>
     lineItems?: Array<{
       label: string
       kind: 'revenue' | 'expense' | 'other'
+      sectionKey?: string
       actual: number
       budget: number
       delta: number

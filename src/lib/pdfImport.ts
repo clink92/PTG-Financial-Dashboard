@@ -1,4 +1,4 @@
-import type { MonthlyData } from '@/lib/data'
+import { parseMonthKey, type MonthlyData } from '@/lib/data'
 
 export type ImportedPdfKind = 'financial-statements' | 'bank-reconciliation' | 'cash-summary' | 'unknown'
 
@@ -16,9 +16,20 @@ export type PdfImportExtracted = {
     totalExpenses?: number
     totalRevenue?: { actual: number; budget: number; variance: number }
     totalOperatingExpenses?: { actual: number; budget: number; variance: number }
+    sections?: Array<{
+      sectionKey: string
+      label: string
+      kind: 'revenue' | 'expense'
+      actual: number
+      budget: number
+      delta: number
+      order: number
+      source: 'fs-subtotal' | 'computed'
+    }>
     lineItems?: Array<{
       label: string
       kind: 'revenue' | 'expense'
+      sectionKey?: string
       actual: number
       budget: number
       delta: number
@@ -304,6 +315,7 @@ type BudgetLineItemKind = 'revenue' | 'expense'
 type BudgetLineItem = {
   label: string
   kind: BudgetLineItemKind
+  sectionKey?: string
   actual: number
   budget: number
   delta: number
@@ -312,19 +324,63 @@ type BudgetLineItem = {
   ytdDelta?: number
 }
 
+type ParsedSection = {
+  sectionKey: string
+  label: string
+  kind: BudgetLineItemKind
+  actual: number
+  budget: number
+  delta: number
+  order: number
+  source: 'fs-subtotal' | 'computed'
+}
+
+function extractOperatingLineItemWindow(text: string): string {
+  const lines = (text || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  if (!lines.length) return text
+
+  const startIndex = lines.findIndex((line) =>
+    /^(REVENUES?|INCOME|OPERATING INCOME|RESIDENTIAL CHARGES|TENANT.*INCOME|MISC.*INCOME|COMMERCIAL.*INCOME)\b/i.test(line)
+  )
+
+  if (startIndex < 0) return text
+
+  const stopPattern =
+    /^(OTHER INCOME|TOTAL OTHER INCOME|CAPITAL EXPENDITURES|TOTAL CAPITAL|TOTAL CAPITAL AND OTHER INCOME\/EXPENSES|NET OPERATING INCOME|OTHER BALANCE SHEET ACCOUNTS|TOTAL BALANCE SHEET)/i
+
+  const endIndex = lines.findIndex((line, idx) => idx > startIndex && stopPattern.test(line))
+  if (endIndex > startIndex) {
+    return lines.slice(startIndex, endIndex).join('\n')
+  }
+
+  return lines.slice(startIndex).join('\n')
+}
+
+function toSectionSlug(label: string) {
+  return label
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | null): BudgetLineItemKind {
   const l = label.toLowerCase()
-  
+
   // If we have a section context from the PDF headings, trust it first.
   // This ensures items under "OTHER TENANT/MISC INCOME" stay as revenue
   // even if they have ambiguous keywords like "fees" or "repairs".
   if (section) {
     return section
   }
-  
+
   // Without section context, use keyword hints to classify
-  // Explicit maintenance is revenue (common in co-op/condo)
-  if (l.includes('maintenance')) return 'revenue'
+  // "Maintenance" can be a revenue line in co-op reports (e.g., maintenance charges).
+  if (l.includes('maintenance income') || l.includes('maintenance charge') || l.includes('common charge')) return 'revenue'
   // Explicit interest lines
   if (l.includes('interest income')) return 'revenue'
   if (l.includes('interest expense')) return 'expense'
@@ -334,6 +390,7 @@ function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | nu
     'income',
     'rent',
     'rental',
+    'common charge',
     'late fee',
     'laundry',
     'parking',
@@ -345,6 +402,7 @@ function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | nu
     'expense',
     'utilities',
     'utility',
+    'maintenance',
     'electric',
     'gas',
     'water',
@@ -396,11 +454,21 @@ function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | nu
   return section === 'revenue' ? 'revenue' : 'expense'
 }
 
-function extractBudgetLineItemsFromText(text: string) {
+function extractBudgetLineItemsFromText(text: string, monthKey?: string): { lineItems: BudgetLineItem[]; sections: ParsedSection[] } | null {
   const lines = (text || '').split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean)
-  const out: BudgetLineItem[] = []
-  let section: BudgetLineItemKind | null = null
+  const lineItems: BudgetLineItem[] = []
+  const sectionMap = new Map<string, ParsedSection>()
+  let currentKind: BudgetLineItemKind | null = null
+  let activeSectionKey: string | null = null
+  let sectionOrder = 0
   let lastLabelCandidate: string | null = null
+  const moneyTokenPattern = /^[()$,\d.\-]+$/
+  const parsedMonth = typeof monthKey === 'string' ? parseMonthKey(monthKey) : null
+  const monthIndex = parsedMonth?.monthIndex ?? null
+
+  const defaultSectionLabel = (kind: BudgetLineItemKind) => (kind === 'revenue' ? 'Revenue' : 'Operating Expenses')
+  const defaultSectionKey = (kind: BudgetLineItemKind) => `${kind}::${toSectionSlug(defaultSectionLabel(kind))}`
+  const sectionKeyFor = (kind: BudgetLineItemKind, label: string) => `${kind}::${toSectionSlug(label) || 'unclassified'}`
 
   const isNoiseLabel = (label: string) => {
     const u = label.toUpperCase()
@@ -411,6 +479,9 @@ function extractBudgetLineItemsFromText(text: string) {
     if (/(ASSETS?|LIABILITIES?|EQUITY)\b/.test(u)) return true
     if (/(DEPOSITS?\s+IN\s+TRANSIT|OUTSTANDING\s+CHECKS?)\b/.test(u)) return true
     if (/(ACCOUNTS?\s+RECEIVABLE|A\/R)\b/.test(u)) return true
+    if (/(MATURING IN|INTEREST RATE)\b/.test(u)) return true
+    if (/(BUDGET COMPARISON|PERIOD ENDING|PAGE \d+\s+OF\s+\d+)/.test(u)) return true
+    if (/(MTD ACTUAL|YTD ACTUAL|ANNUAL BUDGET)/.test(u)) return true
     return false
   }
 
@@ -419,54 +490,91 @@ function extractBudgetLineItemsFromText(text: string) {
     s = s.replace(/^[\-\u2013\u2014:\s]+/, '').replace(/[\-\u2013\u2014:\s]+$/, '')
     // Drop leading GL account codes like "1031-0000".
     s = s.replace(/^\d{3,}(?:-\d{2,})+\s+/, '')
+    s = s.replace(/\.*$/, '')
     return s.trim()
   }
 
-  for (const line of lines) {
-    // Skip headers/footers and very short lines.
-    if (line.length < 10) continue
+  const looksLikeAllCapsHeading = (value: string) => {
+    const normalized = value.replace(/[^A-Z]/g, '')
+    return normalized.length >= 4 && value === value.toUpperCase()
+  }
 
-    const upper = line.toUpperCase()
-    // Section headings to help classify line items
-    if (!/[0-9]/.test(line)) {
-      // Revenue section markers - includes "REVENUES", "OTHER TENANT/MISC INCOME", etc.
-      if (/^(INCOME|REVENUES?|OPERATING INCOME|OTHER INCOME|OTHER TENANT|RESIDENTIAL CHARGES|TENANT.*INCOME|MISC.*INCOME)\b/.test(upper)) {
-        section = 'revenue'
-        lastLabelCandidate = null
-        continue
+  const isMoneyLikeToken = (token: string, idx?: number, sourceTokens?: string[]) => {
+    if (token === '-' || token === '—' || token === '–') {
+      // Keep dashes inside labels (e.g. "PAYROLL - ONSITE MANAGEMENT")
+      // and only treat dashes in numeric columns as zero values.
+      if (!Array.isArray(sourceTokens) || typeof idx !== 'number') return false
+      const isDash = (value: string) => value === '-' || value === '—' || value === '–'
+      const findNeighbor = (direction: -1 | 1) => {
+        let cursor = idx + direction
+        while (cursor >= 0 && cursor < sourceTokens.length) {
+          const value = sourceTokens[cursor]
+          if (!isDash(value)) return value
+          cursor += direction
+        }
+        return ''
       }
-      // Expense section markers
-      if (/^(EXPENSES?|OPERATING EXPENSES?|OTHER EXPENSES?|OTHER OPERATING EXPENSES?|PAYROLL|UTILITIES|REPAIRS|REPAIRS\s*&\s*MAINTENANCE|ADMINISTRATIVE|ADMINISTRATIVE\s*&\s*GENERAL|PROFESSIONAL|PROFESSIONAL\s+FEES|SERVICE\s+CONTRACTS|PARKING\s*\/\s*AMENITIES|PROPERTY\s+AND\s+OTHER\s+TAXES|DEBT\s+SERVICE)\b/.test(upper)) {
-        section = 'expense'
-        lastLabelCandidate = null
-        continue
-      }
-
-      const candidate = cleanLabel(line)
-      if (
-        candidate &&
-        /[A-Za-z]/.test(candidate) &&
-        !/^(TOTAL|SUBTOTAL|GRAND TOTAL)\b/i.test(candidate) &&
-        !/NET OPERATING INCOME/i.test(candidate) &&
-        !isNoiseLabel(candidate)
-      ) {
-        lastLabelCandidate = candidate
-      }
-      continue
+      const left = findNeighbor(-1)
+      const right = findNeighbor(1)
+      const leftNumeric = /[0-9]/.test(left) && moneyTokenPattern.test(left)
+      const rightNumeric = /[0-9]/.test(right) && moneyTokenPattern.test(right)
+      if (leftNumeric || rightNumeric) return true
+      if (/[A-Za-z]/.test(left) || /[A-Za-z]/.test(right)) return false
+      return false
     }
+    return /[0-9]/.test(token) && moneyTokenPattern.test(token)
+  }
 
+  const detectPrimarySection = (upper: string) => {
+    if (/^(INCOME|TOTAL INCOME|OPERATING INCOME|REVENUES?|RESIDENTIAL CHARGES|TENANT.*INCOME|MISC.*INCOME|COMMERCIAL.*INCOME)\b/.test(upper)) {
+      return 'revenue' as const
+    }
+    if (/^(EXPENSES?|OPERATING EXPENSES?|OTHER EXPENSES?|OTHER OPERATING EXPENSES?|TOTAL EXPENSES?)\b/.test(upper)) {
+      return 'expense' as const
+    }
+    return null
+  }
+
+  const isOverallTotalLabel = (kind: BudgetLineItemKind, subtotalLabelUpper: string) =>
+    kind === 'revenue'
+      ? /^(REVENUES?|INCOME)$/.test(subtotalLabelUpper)
+      : /^(OPERATING\s+EXPENSES?|EXPENSES?)$/.test(subtotalLabelUpper)
+
+  const isStopLine = (upper: string) =>
+    /^(OTHER INCOME|TOTAL OTHER INCOME|CAPITAL EXPENDITURES|TOTAL CAPITAL|TOTAL CAPITAL AND OTHER INCOME\/EXPENSES|NET OPERATING INCOME|OTHER BALANCE SHEET ACCOUNTS|TOTAL BALANCE SHEET)/.test(
+      upper
+    )
+
+  const isGenericHeadingLabel = (upper: string) =>
+    /^(INCOME|TOTAL INCOME|OPERATING INCOME|REVENUES?|EXPENSES?|OPERATING EXPENSES?|OTHER EXPENSES?|OTHER OPERATING EXPENSES?|TOTAL EXPENSES?)\b/.test(upper)
+
+  const ensureSection = (kind: BudgetLineItemKind, label: string, source: 'fs-subtotal' | 'computed', totals?: { actual: number; budget: number; delta: number }) => {
+    const sectionKey = sectionKeyFor(kind, label)
+    const existing = sectionMap.get(sectionKey)
+    const next: ParsedSection = {
+      sectionKey,
+      label,
+      kind,
+      actual: totals?.actual ?? existing?.actual ?? 0,
+      budget: totals?.budget ?? existing?.budget ?? 0,
+      delta: totals?.delta ?? existing?.delta ?? 0,
+      order: existing?.order ?? sectionOrder++,
+      source: totals ? 'fs-subtotal' : existing?.source ?? source,
+    }
+    sectionMap.set(sectionKey, next)
+    return next
+  }
+
+  const parseLineAmounts = (line: string) => {
     const tokens = line.split(' ')
     const moneyTokens: Array<{ idx: number; tok: string }> = []
     for (let i = 0; i < tokens.length; i++) {
       const tok = tokens[i]
-      // Recognize standalone dash as money token (represents zero in PDFs)
-      if (tok === '-' || tok === '—' || tok === '–') {
-        moneyTokens.push({ idx: i, tok })
-      } else if (/[0-9]/.test(tok) && /^[()$,\d.\-]+$/.test(tok)) {
+      if (isMoneyLikeToken(tok, i, tokens)) {
         moneyTokens.push({ idx: i, tok })
       }
     }
-    if (moneyTokens.length < 3) continue
+    if (moneyTokens.length < 3) return null
 
     const pickTriple = (start: number) => {
       for (let j = start; j <= moneyTokens.length - 3; j++) {
@@ -478,39 +586,56 @@ function extractBudgetLineItemsFromText(text: string) {
         const deltaAB = a - b
         const deltaBA = b - a
         const tol = Math.max(10, Math.max(Math.abs(deltaAB), Math.abs(deltaBA)) * 0.02)
-
         const matchesAB = Math.abs(deltaAB - d) <= tol
         const matchesBA = Math.abs(deltaBA - d) <= tol
         if (!matchesAB && !matchesBA) continue
-
-        return { actual: a, budget: b, delta: deltaAB, startIdx: moneyTokens[j].idx, tokenIndex: j }
+        return { actual: a, budget: b, delta: deltaAB, tokenIndex: j }
       }
       return null
     }
 
-    // Find the first contiguous triple in the line where the third value matches
-    // either (actual - budget) or (budget - actual). Many PDFs include both month and YTD triples;
-    // choosing the first match usually corresponds to the month columns.
-    const picked = pickTriple(0)
-    if (!picked) continue
+    if (typeof monthIndex === 'number' && moneyTokens.length >= 12) {
+      const monthlyValues: number[] = []
+      for (let i = 0; i < 12; i++) {
+        const value = parseMoneyStrict(moneyTokens[i].tok)
+        if (typeof value !== 'number') {
+          monthlyValues.length = 0
+          break
+        }
+        monthlyValues.push(value)
+      }
 
-    // Attempt to find a second matching triple later in the line (likely YTD).
-    const pickedYtd = pickTriple(picked.tokenIndex + 3)
-
-    let label = cleanLabel(tokens.slice(0, picked.startIdx).join(' '))
-    if (!label && lastLabelCandidate) {
-      label = lastLabelCandidate
-      lastLabelCandidate = null
+      if (monthlyValues.length === 12) {
+        const actual = monthlyValues[monthIndex]
+        let budget = actual
+        if (moneyTokens.length >= 24) {
+          const monthBudget = parseMoneyStrict(moneyTokens[12 + monthIndex].tok)
+          if (typeof monthBudget === 'number') budget = monthBudget
+        }
+        const ytdTriple = pickTriple(12)
+        const firstMoneyIdx = tokens.findIndex((tok, idx) => isMoneyLikeToken(tok, idx, tokens))
+        return {
+          firstMoneyIdx,
+          actual,
+          budget,
+          delta: actual - budget,
+          ...(ytdTriple
+            ? {
+                ytdActual: ytdTriple.actual,
+                ytdBudget: ytdTriple.budget,
+                ytdDelta: ytdTriple.delta,
+              }
+            : {}),
+        }
+      }
     }
-    if (!label) continue
-    if (!/[A-Za-z]/.test(label)) continue
-    if (/^(TOTAL|SUBTOTAL|GRAND TOTAL)\b/i.test(label)) continue
-    if (/NET OPERATING INCOME/i.test(label)) continue
-    if (isNoiseLabel(label)) continue
 
-    out.push({
-      label,
-      kind: inferBudgetLineItemKind(label, section),
+    const picked = pickTriple(0)
+    if (!picked) return null
+    const pickedYtd = pickTriple(picked.tokenIndex + 3)
+    const firstMoneyIdx = tokens.findIndex((tok, idx) => isMoneyLikeToken(tok, idx, tokens))
+    return {
+      firstMoneyIdx,
       actual: picked.actual,
       budget: picked.budget,
       delta: picked.delta,
@@ -521,21 +646,189 @@ function extractBudgetLineItemsFromText(text: string) {
             ytdDelta: pickedYtd.delta,
           }
         : {}),
-    })
-    if (out.length >= 250) break
+    }
   }
 
-  // Deduplicate by label, keeping item with YTD data if available
-  const deduped = Array.from(
-    out.reduce((map, item) => {
-      const existing = map.get(item.label)
+  for (const line of lines) {
+    const upper = line.toUpperCase()
+    if (isStopLine(upper)) break
+
+    const detectedPrimary = detectPrimarySection(upper)
+    if (detectedPrimary) {
+      currentKind = detectedPrimary
+      activeSectionKey = null
+      lastLabelCandidate = null
+      continue
+    }
+
+    // Skip headers/footers and very short lines.
+    if (line.length < 10) continue
+
+    if (!/[0-9]/.test(line)) {
+      const candidate = cleanLabel(line)
+      if (currentKind && candidate && looksLikeAllCapsHeading(candidate) && !isGenericHeadingLabel(candidate.toUpperCase()) && !isNoiseLabel(candidate)) {
+        const section = ensureSection(currentKind, candidate, 'computed')
+        activeSectionKey = section.sectionKey
+        lastLabelCandidate = null
+        continue
+      }
+
+      if (
+        candidate &&
+        /[A-Za-z]/.test(candidate) &&
+        !/^(TOTAL|SUBTOTAL|GRAND TOTAL)\b/i.test(candidate) &&
+        !/NET OPERATING INCOME/i.test(candidate) &&
+        !isGenericHeadingLabel(candidate.toUpperCase()) &&
+        !isNoiseLabel(candidate) &&
+        !looksLikeAllCapsHeading(candidate)
+      ) {
+        lastLabelCandidate = candidate
+      }
+      continue
+    }
+
+    const parsedAmounts = parseLineAmounts(line)
+    if (!parsedAmounts) continue
+
+    const lineTokens = line.split(' ')
+    const labelTokens = parsedAmounts.firstMoneyIdx > 0 ? lineTokens.slice(0, parsedAmounts.firstMoneyIdx) : []
+    let label = cleanLabel(labelTokens.join(' '))
+    if (!label && lastLabelCandidate) {
+      label = lastLabelCandidate
+      lastLabelCandidate = null
+    }
+    if (!label) continue
+
+    if (/^TOTAL\b/i.test(label)) {
+      if (!currentKind) continue
+      const subtotalLabel = cleanLabel(label.replace(/^TOTAL\s+/i, ''))
+      const subtotalUpper = subtotalLabel.toUpperCase()
+      if (!subtotalLabel) continue
+      if (isOverallTotalLabel(currentKind, subtotalUpper)) {
+        activeSectionKey = null
+        if (currentKind === 'expense') break
+        continue
+      }
+      if (/^(OTHER INCOME|CAPITAL|CURRENT|PAST|BALANCE SHEET)\b/.test(subtotalUpper)) continue
+      if (isNoiseLabel(subtotalLabel)) continue
+      const subtotalSectionKey = sectionKeyFor(currentKind, subtotalLabel)
+      if (!activeSectionKey) {
+        for (let i = lineItems.length - 1; i >= 0; i--) {
+          const item = lineItems[i]
+          if (item.kind !== currentKind) break
+          const itemSectionKey = item.sectionKey ?? defaultSectionKey(currentKind)
+          if (itemSectionKey !== defaultSectionKey(currentKind)) break
+          item.sectionKey = subtotalSectionKey
+        }
+      }
+      ensureSection(currentKind, subtotalLabel, 'fs-subtotal', {
+        actual: parsedAmounts.actual,
+        budget: parsedAmounts.budget,
+        delta: parsedAmounts.delta,
+      })
+      activeSectionKey = null
+      continue
+    }
+
+    if (!/[A-Za-z]/.test(label)) continue
+    if (/^(SUBTOTAL|GRAND TOTAL)\b/i.test(label)) continue
+    if (/NET OPERATING INCOME/i.test(label)) continue
+    if (isNoiseLabel(label)) continue
+
+    const kind = inferBudgetLineItemKind(label, currentKind)
+    const resolvedSectionKey = activeSectionKey ?? defaultSectionKey(kind)
+    if (!sectionMap.has(resolvedSectionKey)) {
+      sectionMap.set(resolvedSectionKey, {
+        sectionKey: resolvedSectionKey,
+        label: defaultSectionLabel(kind),
+        kind,
+        actual: 0,
+        budget: 0,
+        delta: 0,
+        order: sectionOrder++,
+        source: 'computed',
+      })
+    }
+
+    lineItems.push({
+      label,
+      kind,
+      sectionKey: resolvedSectionKey,
+      actual: parsedAmounts.actual,
+      budget: parsedAmounts.budget,
+      delta: parsedAmounts.delta,
+      ...(typeof parsedAmounts.ytdActual === 'number' ? { ytdActual: parsedAmounts.ytdActual } : {}),
+      ...(typeof parsedAmounts.ytdBudget === 'number' ? { ytdBudget: parsedAmounts.ytdBudget } : {}),
+      ...(typeof parsedAmounts.ytdDelta === 'number' ? { ytdDelta: parsedAmounts.ytdDelta } : {}),
+    })
+    if (lineItems.length >= 300) break
+  }
+
+  const dedupedLineItems = Array.from(
+    lineItems.reduce((map, item) => {
+      const dedupeKey = `${item.kind}::${item.sectionKey ?? ''}::${item.label}`
+      const existing = map.get(dedupeKey)
       if (!existing || (item.ytdActual !== undefined && existing.ytdActual === undefined)) {
-        map.set(item.label, item)
+        map.set(dedupeKey, item)
       }
       return map
     }, new Map<string, BudgetLineItem>()).values()
   )
-  return deduped.length ? deduped : null
+
+  const sectionSums = new Map<string, { actual: number; budget: number; delta: number; itemCount: number }>()
+  const appendSectionSum = (item: BudgetLineItem) => {
+    const sectionKey = item.sectionKey ?? defaultSectionKey(item.kind)
+    const existing = sectionSums.get(sectionKey) ?? { actual: 0, budget: 0, delta: 0, itemCount: 0 }
+    existing.actual += item.actual
+    existing.budget += item.budget
+    existing.delta += item.delta
+    existing.itemCount += 1
+    sectionSums.set(sectionKey, existing)
+  }
+
+  for (const item of dedupedLineItems) {
+    appendSectionSum(item)
+  }
+
+  const balancedLineItems = [...dedupedLineItems]
+  const sectionsInOrder = Array.from(sectionMap.values()).sort((a, b) => a.order - b.order)
+  for (const section of sectionsInOrder) {
+    if (section.source !== 'fs-subtotal') continue
+    const sum = sectionSums.get(section.sectionKey) ?? { actual: 0, budget: 0, delta: 0, itemCount: 0 }
+    const actualDiff = roundToCents(section.actual - sum.actual)
+    const budgetDiff = roundToCents(section.budget - sum.budget)
+    if (Math.abs(actualDiff) <= 1 && Math.abs(budgetDiff) <= 1) continue
+
+    const balancingItem: BudgetLineItem = {
+      label: `Unclassified in ${section.label}`,
+      kind: section.kind,
+      sectionKey: section.sectionKey,
+      actual: actualDiff,
+      budget: budgetDiff,
+      delta: roundToCents(actualDiff - budgetDiff),
+    }
+    balancedLineItems.push(balancingItem)
+    appendSectionSum(balancingItem)
+  }
+
+  const sections: ParsedSection[] = []
+  for (const section of sectionsInOrder) {
+    const sum = sectionSums.get(section.sectionKey)
+    if (!sum && section.source === 'computed') continue
+    if (section.source === 'fs-subtotal') {
+      sections.push(section)
+    } else {
+      sections.push({
+        ...section,
+        actual: roundToCents(sum?.actual ?? 0),
+        budget: roundToCents(sum?.budget ?? 0),
+        delta: roundToCents(sum?.actual ?? 0) - roundToCents(sum?.budget ?? 0),
+      })
+    }
+  }
+
+  if (!balancedLineItems.length && !sections.length) return null
+  return { lineItems: balancedLineItems, sections }
 }
 
 function extractNOIFromFS(text: string) {
@@ -772,6 +1065,7 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
   let receivables: PdfImportExtracted['receivables']
   let bankReconciliation: PdfImportExtracted['bankReconciliation']
   let lineItems: NonNullable<NonNullable<PdfImportExtracted['incomeStatement']>['lineItems']> | undefined
+  let sections: NonNullable<NonNullable<PdfImportExtracted['incomeStatement']>['sections']> | undefined
 
   const isFsNamed = (fileName: string) => {
     const n = normalizeName(fileName)
@@ -801,7 +1095,10 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
       incomeStatement = incomeStatement ?? extractIncomeStatementTotals(input.text) ?? undefined
       cash = cash ?? extractCashTotals(normalized) ?? undefined
       receivables = receivables ?? extractReceivablesFromFS(normalized) ?? undefined
-      lineItems = lineItems ?? extractBudgetLineItemsFromText(input.text) ?? undefined
+      const lineItemWindow = extractOperatingLineItemWindow(input.text)
+      const parsedBreakdown = extractBudgetLineItemsFromText(lineItemWindow, monthKey)
+      lineItems = lineItems ?? parsedBreakdown?.lineItems ?? undefined
+      sections = sections ?? parsedBreakdown?.sections ?? undefined
     }
 
     if (kind === 'cash-summary') {
@@ -846,7 +1143,12 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
     if (!bankReconciliation && /BANK STATEMENT|ADJUSTED BANK BALANCE/i.test(normalized)) {
       bankReconciliation = extractBankReconciliation(normalized) ?? undefined
     }
-    if (!lineItems && /(BUDGET|VARIANCE)\b/i.test(normalized)) lineItems = extractBudgetLineItemsFromText(input.text) ?? undefined
+    if (!lineItems && /(BUDGET|VARIANCE)\b/i.test(normalized)) {
+      const lineItemWindow = extractOperatingLineItemWindow(input.text)
+      const parsedBreakdown = extractBudgetLineItemsFromText(lineItemWindow, monthKey)
+      lineItems = parsedBreakdown?.lineItems ?? undefined
+      sections = parsedBreakdown?.sections ?? undefined
+    }
   }
 
   // Legacy: if the user uploaded exactly 3 PDFs and we confidently detected
@@ -884,6 +1186,7 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
   if (incomeStatement || lineItems) {
     extracted.incomeStatement = {
       ...(incomeStatement || {}),
+      ...(sections?.length ? { sections } : {}),
       ...(lineItems?.length ? { lineItems } : {}),
     }
   }
@@ -917,14 +1220,15 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
     data.netIncome = { actual: netIncome.actual, budget: netIncome.budget, variance: netIncome.variance }
   }
 
-  // Deduplicate line items by label (keep the one with YTD data if available)
+  // Deduplicate by kind+section+label so the same label can exist across sections.
   const dedupedLineItems = lineItems?.length
     ? Array.from(
         lineItems.reduce((map, item) => {
-          const existing = map.get(item.label)
+          const dedupeKey = `${item.kind}::${item.sectionKey ?? ''}::${item.label}`
+          const existing = map.get(dedupeKey)
           // Keep item with YTD data if available, otherwise keep first
           if (!existing || (item.ytdActual !== undefined && existing.ytdActual === undefined)) {
-            map.set(item.label, item)
+            map.set(dedupeKey, item)
           }
           return map
         }, new Map<string, typeof lineItems[number]>()).values()
@@ -937,6 +1241,7 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
       ...(typeof incomeStatement?.totalExpenses === 'number' ? { totalExpenses: incomeStatement.totalExpenses } : {}),
       ...(incomeStatement?.totalRevenue ? { totalRevenue: incomeStatement.totalRevenue } : {}),
       ...(incomeStatement?.totalOperatingExpenses ? { totalOperatingExpenses: incomeStatement.totalOperatingExpenses } : {}),
+      ...(sections?.length ? { sections } : {}),
       ...(dedupedLineItems?.length ? { lineItems: dedupedLineItems } : {}),
     }
   }
