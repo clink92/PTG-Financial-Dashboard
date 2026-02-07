@@ -1410,6 +1410,7 @@ body {
 .tab-nav {
   display: flex;
   gap: 4px;
+  flex-wrap: wrap;
   background: var(--bg);
   padding: 4px;
   border-radius: 10px;

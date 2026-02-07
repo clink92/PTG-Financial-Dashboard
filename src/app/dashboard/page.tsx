@@ -150,6 +150,7 @@ export default function DashboardPage() {
   const [expenseSort, setExpenseSort] = useState<{ col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }>({ col: 'actual', dir: 'desc' })
   const autoSelectedMonthRef = useRef(false)
   const chatEndRef = useRef<HTMLDivElement | null>(null)
+  const userMenuRef = useRef<HTMLDivElement | null>(null)
 
   const [importFiles, setImportFiles] = useState<File[]>([])
   const [importing, setImporting] = useState(false)
@@ -270,6 +271,30 @@ export default function DashboardPage() {
     if (!chatEndRef.current) return
     chatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [chatMessages, chatLoading])
+
+  useEffect(() => {
+    if (!showUserMenu) return
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!userMenuRef.current) return
+      if (!userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowUserMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [showUserMenu])
 
   if (status === 'loading' || (loadingMonthData && !monthData)) {
     return (
@@ -1053,10 +1078,12 @@ export default function DashboardPage() {
             Upload FS PDF
           </button>
 
-          <div className="user-menu">
+          <div className="user-menu" ref={userMenuRef}>
             <button 
               className="user-button"
               onClick={() => setShowUserMenu(!showUserMenu)}
+              aria-expanded={showUserMenu}
+              aria-haspopup="menu"
             >
               <div className="user-avatar">{getInitials(session?.user?.name || '')}</div>
               <span>{session?.user?.name}</span>
