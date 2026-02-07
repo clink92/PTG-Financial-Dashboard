@@ -1,7 +1,7 @@
 'use client'
 
 import { useSession, signOut } from 'next-auth/react'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Chart as ChartJS,
@@ -146,6 +146,7 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview')
   const [incomeView, setIncomeView] = useState<'mtd' | 'ytd'>('mtd')
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ revenue: false, expenses: false, other: false })
+  const [expandedBreakdownSections, setExpandedBreakdownSections] = useState<Record<string, boolean>>({})
   const [revenueSort, setRevenueSort] = useState<{ col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }>({ col: 'actual', dir: 'desc' })
   const [expenseSort, setExpenseSort] = useState<{ col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }>({ col: 'actual', dir: 'desc' })
   const autoSelectedMonthRef = useRef(false)
@@ -534,8 +535,21 @@ export default function DashboardPage() {
   }
 
   // Group line items by kind for breakdown sections
-  const revenueItemsRaw = lineItemsForView.filter((x) => x.kind === 'revenue')
-  const expenseItemsRaw = lineItemsForView.filter((x) => x.kind === 'expense' || x.kind === 'other')
+  const sectionDefinitions = incomeStatement?.sections ?? []
+  const hasSectionDefinitions = sectionDefinitions.length > 0
+  const fallbackSectionKey = (kind: 'revenue' | 'expense') => `${kind}::overall`
+  const fallbackUnclassifiedSectionKey = (kind: 'revenue' | 'expense') =>
+    hasSectionDefinitions ? `${kind}::overall-unclassified` : fallbackSectionKey(kind)
+
+  const normalizeSectionKey = (item: typeof lineItemsForView[number], kind: 'revenue' | 'expense') =>
+    hasSectionDefinitions ? item.sectionKey || `${kind}::unclassified` : fallbackSectionKey(kind)
+
+  const revenueItemsRaw = lineItemsForView
+    .filter((x) => x.kind === 'revenue')
+    .map((x) => ({ ...x, sectionKey: normalizeSectionKey(x, 'revenue') }))
+  const expenseItemsRaw = lineItemsForView
+    .filter((x) => x.kind === 'expense' || x.kind === 'other')
+    .map((x) => ({ ...x, sectionKey: normalizeSectionKey(x, 'expense') }))
 
   // Calculate sums and add balancing "Other" row to reconcile with FS totals
   const sumRevenueRaw = revenueItemsRaw.reduce((acc, x) => acc + (x.viewActual || 0), 0)
@@ -549,6 +563,7 @@ export default function DashboardPage() {
     ? [...revenueItemsRaw, { 
         label: 'Other Revenue (Unclassified)', 
         kind: 'revenue' as const, 
+        sectionKey: fallbackUnclassifiedSectionKey('revenue'),
         viewActual: revenueDiff, 
         viewBudget: revenueBudgetDiff, 
         viewDelta: revenueDiff - revenueBudgetDiff,
@@ -571,6 +586,7 @@ export default function DashboardPage() {
     ? [...expenseItemsRaw, {
         label: 'Other Expenses (Unclassified)',
         kind: 'expense' as const,
+        sectionKey: fallbackUnclassifiedSectionKey('expense'),
         viewActual: expensesDiff,
         viewBudget: expensesBudgetDiff,
         viewDelta: expensesDiff - expensesBudgetDiff,
@@ -581,6 +597,85 @@ export default function DashboardPage() {
       }]
     : expenseItemsRaw
   const expenseItems = sortItems(expenseItemsWithBalancing, expenseSort)
+
+  const sortSections = <
+    T extends {
+      label: string
+      actual: number
+      budget: number
+      delta: number
+      order: number
+    },
+  >(
+    sections: T[],
+    sort: { col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }
+  ): T[] => {
+    return [...sections].sort((a, b) => {
+      let base = 0
+      switch (sort.col) {
+        case 'actual':
+          base = a.actual - b.actual
+          break
+        case 'budget':
+          base = a.budget - b.budget
+          break
+        case 'variance':
+          base = a.delta - b.delta
+          break
+        case 'label':
+          base = a.label.toLowerCase().localeCompare(b.label.toLowerCase())
+          break
+      }
+      if (base === 0) base = a.order - b.order
+      return sort.dir === 'asc' ? base : -base
+    })
+  }
+
+  const buildBreakdownSections = (
+    kind: 'revenue' | 'expense',
+    items: typeof revenueItemsWithBalancing | typeof expenseItemsWithBalancing,
+    sort: { col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }
+  ) => {
+    const byKey = new Map<string, typeof items>()
+    for (const item of items) {
+      const sectionKey = item.sectionKey || fallbackSectionKey(kind)
+      const existing = byKey.get(sectionKey) ?? []
+      existing.push(item)
+      byKey.set(sectionKey, existing)
+    }
+
+    const definitionByKey = new Map(sectionDefinitions.filter((s) => s.kind === kind).map((s) => [s.sectionKey, s]))
+    const unsorted = Array.from(byKey.entries()).map(([sectionKey, sectionItems], idx) => {
+      const definition = definitionByKey.get(sectionKey)
+      const actual = sectionItems.reduce((acc, item) => acc + (item.viewActual || 0), 0)
+      const budget = sectionItems.reduce((acc, item) => acc + (item.viewBudget || 0), 0)
+      const delta = actual - budget
+      const defaultLabel =
+        sectionKey === fallbackSectionKey(kind)
+          ? kind === 'revenue'
+            ? 'Revenue'
+            : 'Operating Expenses'
+          : kind === 'revenue'
+            ? 'Unclassified Revenue'
+            : 'Unclassified Expenses'
+      return {
+        sectionKey,
+        label: definition?.label || defaultLabel,
+        order: typeof definition?.order === 'number' ? definition.order : 1000 + idx,
+        source: definition?.source ?? 'computed',
+        actual,
+        budget,
+        delta,
+        itemCount: sectionItems.length,
+        items: sortItems(sectionItems, sort),
+      }
+    })
+
+    return sortSections(unsorted, sort)
+  }
+
+  const revenueBreakdownSections = buildBreakdownSections('revenue', revenueItemsWithBalancing, revenueSort)
+  const expenseBreakdownSections = buildBreakdownSections('expense', expenseItemsWithBalancing, expenseSort)
 
   // Final sums (should now match FS totals)
   const sumRevenue = revenueItems.reduce((acc, x) => acc + (x.viewActual || 0), 0)
@@ -1505,7 +1600,7 @@ export default function DashboardPage() {
                     >
                       <span>
                         <i className="fas fa-arrow-trend-up" style={{ marginRight: 8, color: '#22c55e' }}></i>
-                        Revenue Breakdown ({revenueItems.length} items)
+                        Revenue Breakdown ({revenueBreakdownSections.length} sections, {revenueItems.length} items)
                       </span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ fontSize: 12, fontWeight: 500 }}>
@@ -1546,27 +1641,100 @@ export default function DashboardPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {revenueItems.map((item, idx) => (
-                              <tr key={idx} style={{ 
-                                borderBottom: '1px solid var(--border)',
-                                background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
-                              }}>
-                                <td style={{ 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
-                                  color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
-                                }}>{item.label}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
-                                <td style={{ 
-                                  textAlign: 'right', 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  color: item.viewDelta >= 0 ? '#22c55e' : '#ef4444'
-                                }}>{formatCurrency(item.viewDelta)}</td>
-                              </tr>
-                            ))}
+                            {revenueBreakdownSections.map((section) => {
+                              const sectionToggleKey = `revenue::${section.sectionKey}`
+                              const expanded = Boolean(expandedBreakdownSections[sectionToggleKey])
+                              return (
+                                <Fragment key={sectionToggleKey}>
+                                  <tr
+                                    style={{
+                                      borderBottom: '1px solid var(--border)',
+                                      background: 'rgba(34, 197, 94, 0.06)',
+                                    }}
+                                  >
+                                    <td style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600 }}>
+                                      <button
+                                        onClick={() =>
+                                          setExpandedBreakdownSections((s) => ({ ...s, [sectionToggleKey]: !s[sectionToggleKey] }))
+                                        }
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: 8,
+                                          border: 'none',
+                                          background: 'transparent',
+                                          padding: 0,
+                                          margin: 0,
+                                          cursor: 'pointer',
+                                          color: 'inherit',
+                                          font: 'inherit',
+                                        }}
+                                      >
+                                        <i
+                                          className={`fas fa-chevron-${expanded ? 'down' : 'right'}`}
+                                          style={{ color: 'var(--text-muted)', fontSize: 11 }}
+                                        ></i>
+                                        {section.label} ({section.itemCount})
+                                      </button>
+                                    </td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, fontWeight: 600 }}>
+                                      {formatCurrency(section.actual)}
+                                    </td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+                                      {formatCurrency(section.budget)}
+                                    </td>
+                                    <td
+                                      style={{
+                                        textAlign: 'right',
+                                        padding: '8px 16px',
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                        color: section.delta >= 0 ? '#22c55e' : '#ef4444',
+                                      }}
+                                    >
+                                      {formatCurrency(section.delta)}
+                                    </td>
+                                  </tr>
+                                  {expanded &&
+                                    section.items.map((item, idx) => (
+                                      <tr
+                                        key={`${sectionToggleKey}::${item.label}::${idx}`}
+                                        style={{
+                                          borderBottom: '1px solid var(--border)',
+                                          background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined,
+                                        }}
+                                      >
+                                        <td
+                                          style={{
+                                            padding: '8px 16px 8px 36px',
+                                            fontSize: 13,
+                                            fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                            color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined,
+                                          }}
+                                        >
+                                          {item.label}
+                                        </td>
+                                        <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>
+                                          {formatCurrency(item.viewActual)}
+                                        </td>
+                                        <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+                                          {formatCurrency(item.viewBudget)}
+                                        </td>
+                                        <td
+                                          style={{
+                                            textAlign: 'right',
+                                            padding: '8px 16px',
+                                            fontSize: 13,
+                                            color: item.viewDelta >= 0 ? '#22c55e' : '#ef4444',
+                                          }}
+                                        >
+                                          {formatCurrency(item.viewDelta)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                </Fragment>
+                              )
+                            })}
                           </tbody>
                           <tfoot>
                             <tr style={{ background: 'rgba(34, 197, 94, 0.12)', fontWeight: 600 }}>
@@ -1601,7 +1769,7 @@ export default function DashboardPage() {
                     >
                       <span>
                         <i className="fas fa-arrow-trend-down" style={{ marginRight: 8, color: '#ef4444' }}></i>
-                        Expense Breakdown ({expenseItems.length} items)
+                        Expense Breakdown ({expenseBreakdownSections.length} sections, {expenseItems.length} items)
                       </span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ fontSize: 12, fontWeight: 500 }}>
@@ -1642,27 +1810,100 @@ export default function DashboardPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {expenseItems.map((item, idx) => (
-                              <tr key={idx} style={{ 
-                                borderBottom: '1px solid var(--border)',
-                                background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
-                              }}>
-                                <td style={{ 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
-                                  color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
-                                }}>{item.label}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
-                                <td style={{ 
-                                  textAlign: 'right', 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444'
-                                }}>{formatCurrency(item.viewDelta)}</td>
-                              </tr>
-                            ))}
+                            {expenseBreakdownSections.map((section) => {
+                              const sectionToggleKey = `expense::${section.sectionKey}`
+                              const expanded = Boolean(expandedBreakdownSections[sectionToggleKey])
+                              return (
+                                <Fragment key={sectionToggleKey}>
+                                  <tr
+                                    style={{
+                                      borderBottom: '1px solid var(--border)',
+                                      background: 'rgba(239, 68, 68, 0.06)',
+                                    }}
+                                  >
+                                    <td style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600 }}>
+                                      <button
+                                        onClick={() =>
+                                          setExpandedBreakdownSections((s) => ({ ...s, [sectionToggleKey]: !s[sectionToggleKey] }))
+                                        }
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: 8,
+                                          border: 'none',
+                                          background: 'transparent',
+                                          padding: 0,
+                                          margin: 0,
+                                          cursor: 'pointer',
+                                          color: 'inherit',
+                                          font: 'inherit',
+                                        }}
+                                      >
+                                        <i
+                                          className={`fas fa-chevron-${expanded ? 'down' : 'right'}`}
+                                          style={{ color: 'var(--text-muted)', fontSize: 11 }}
+                                        ></i>
+                                        {section.label} ({section.itemCount})
+                                      </button>
+                                    </td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, fontWeight: 600 }}>
+                                      {formatCurrency(section.actual)}
+                                    </td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+                                      {formatCurrency(section.budget)}
+                                    </td>
+                                    <td
+                                      style={{
+                                        textAlign: 'right',
+                                        padding: '8px 16px',
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                        color: section.delta <= 0 ? '#22c55e' : '#ef4444',
+                                      }}
+                                    >
+                                      {formatCurrency(section.delta)}
+                                    </td>
+                                  </tr>
+                                  {expanded &&
+                                    section.items.map((item, idx) => (
+                                      <tr
+                                        key={`${sectionToggleKey}::${item.label}::${idx}`}
+                                        style={{
+                                          borderBottom: '1px solid var(--border)',
+                                          background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined,
+                                        }}
+                                      >
+                                        <td
+                                          style={{
+                                            padding: '8px 16px 8px 36px',
+                                            fontSize: 13,
+                                            fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                            color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined,
+                                          }}
+                                        >
+                                          {item.label}
+                                        </td>
+                                        <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>
+                                          {formatCurrency(item.viewActual)}
+                                        </td>
+                                        <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+                                          {formatCurrency(item.viewBudget)}
+                                        </td>
+                                        <td
+                                          style={{
+                                            textAlign: 'right',
+                                            padding: '8px 16px',
+                                            fontSize: 13,
+                                            color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444',
+                                          }}
+                                        >
+                                          {formatCurrency(item.viewDelta)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                </Fragment>
+                              )
+                            })}
                           </tbody>
                           <tfoot>
                             <tr style={{ background: 'rgba(239, 68, 68, 0.12)', fontWeight: 600 }}>
