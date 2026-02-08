@@ -548,7 +548,7 @@ export default function DashboardPage() {
         map.set(key, { vendor, total: note.amount, count: 1 })
       }
     }
-    return [...map.values()].sort((a, b) => b.total - a.total)
+    return Array.from(map.values()).sort((a, b) => b.total - a.total)
   })()
 
   // Sort helper function
