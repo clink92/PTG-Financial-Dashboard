@@ -56,6 +56,49 @@ type ChatMessage = {
   content: string
 }
 
+type StructuredFsNote = {
+  code?: string
+  category: string
+  vendor?: string
+  amount?: number
+  mmYyyy?: string
+  description: string
+  raw: string
+}
+
+function parseCurrencyToken(raw: string | undefined): number | undefined {
+  if (!raw) return undefined
+  const cleaned = raw.replace(/[$,]/g, '').trim()
+  const n = Number(cleaned)
+  return Number.isFinite(n) ? n : undefined
+}
+
+function parseStructuredFsNotes(notes: string[] | undefined): StructuredFsNote[] {
+  if (!notes?.length) return []
+  const out: StructuredFsNote[] = []
+
+  for (const note of notes) {
+    const n = (note || '').trim()
+    if (!n || /^Imported from PDFs on\b/i.test(n)) continue
+
+    const headerMatch = n.match(/^([A-Z])\.\s+([^:]+):\s+(.+)$/)
+    const code = headerMatch?.[1]
+    const category = (headerMatch?.[2] || 'General').trim()
+    const body = (headerMatch?.[3] || n).trim()
+
+    const clauses = body.match(/PAYMENT TO\s+.+?(?=(?:PAYMENT TO\s+)|$)/gi) ?? [body]
+    for (const clause of clauses) {
+      const vendor = clause.match(/PAYMENT TO\s+(.+?)\s+IN\s+\d{1,2}\/\d{4}\s+OF\b/i)?.[1]?.trim()
+      const mmYyyy = clause.match(/\bIN\s+(\d{1,2}\/\d{4})\b/i)?.[1]
+      const amount = parseCurrencyToken(clause.match(/\bOF\s+\$?\s*([0-9][0-9,]*(?:\.\d+)?)\b/i)?.[1])
+      const description = (clause.match(/\bFOR\s+(.+)$/i)?.[1] || clause).trim()
+      out.push({ code, category, vendor, amount, mmYyyy, description, raw: n })
+    }
+  }
+
+  return out
+}
+
 async function safeReadJson(res: Response): Promise<unknown> {
   const text = await res.text()
   if (!text) return null
@@ -485,6 +528,28 @@ export default function DashboardPage() {
   const topExpenseItems = [...expenseLineItems].sort((a, b) => b.viewActual - a.viewActual).slice(0, 3)
   const topVarianceItems = [...lineItemsForView].sort((a, b) => Math.abs(b.viewDelta) - Math.abs(a.viewDelta)).slice(0, 3)
   const lineItemScopeLabel = incomeView === 'ytd' && hasYtdData ? 'YTD' : 'MTD'
+  const structuredNotes = parseStructuredFsNotes(monthData?.notes)
+  const topOneTimeNotes = [...structuredNotes]
+    .filter((n) => typeof n.amount === 'number')
+    .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))
+    .slice(0, 5)
+
+  const vendorNoteSummary = (() => {
+    const map = new Map<string, { vendor: string; total: number; count: number }>()
+    for (const note of structuredNotes) {
+      const vendor = (note.vendor || '').trim()
+      if (!vendor || typeof note.amount !== 'number') continue
+      const key = vendor.toLowerCase()
+      const existing = map.get(key)
+      if (existing) {
+        existing.total += note.amount
+        existing.count += 1
+      } else {
+        map.set(key, { vendor, total: note.amount, count: 1 })
+      }
+    }
+    return [...map.values()].sort((a, b) => b.total - a.total)
+  })()
 
   // Sort helper function
   const sortItems = <T extends { label: string; viewActual: number; viewBudget: number; viewDelta: number }>(
@@ -716,6 +781,9 @@ export default function DashboardPage() {
     const wantsReceivables = /receivable|a\/r|aging|over 30|over 60|over 90/.test(q)
     const wantsBank = /bank|reconcil|deposit|outstanding check/.test(q)
     const wantsNotes = /notes?|comment/.test(q)
+    const wantsOneTime = /one[- ]?time|non[- ]?recurring|unusual|exception/.test(q)
+    const wantsVendorSummary = /vendor|payee|supplier/.test(q)
+    const wantsVarianceExplain = /explain variance|why .*variance|what caused .*variance|what drove .*variance/.test(q)
     const wantsSources = /source|pdf|file/.test(q)
     const wantsRevenue =
       /revenue|rent|rental|top line|income statement/.test(q) || (q.includes('income') && !wantsNetIncome)
@@ -735,6 +803,9 @@ export default function DashboardPage() {
       wantsExpenses ||
       wantsBank ||
       wantsNotes ||
+      wantsOneTime ||
+      wantsVendorSummary ||
+      wantsVarianceExplain ||
       wantsSources
 
     if (!monthData) {
@@ -751,6 +822,8 @@ export default function DashboardPage() {
         'How did A/R change over the last 6 months?',
         'Are operating expenses over budget?',
         'What are the top expense line items?',
+        'Show unusual one-time expenses from notes.',
+        'Summarize notes by vendor.',
       ])
     }
 
@@ -928,6 +1001,75 @@ export default function DashboardPage() {
       }
     }
 
+    if (wantsOneTime) {
+      if (topOneTimeNotes.length) {
+        responses.push(
+          makeLines(
+            `Top one-time expense notes (${selectedMonthLabel}):`,
+            topOneTimeNotes.map((n) =>
+              `${n.code ? `${n.code}. ` : ''}${n.category}: ${n.vendor || 'Vendor not parsed'} • ${formatCurrencyFull(n.amount)}${n.mmYyyy ? ` • ${n.mmYyyy}` : ''}`
+            )
+          )
+        )
+      } else if (structuredNotes.length) {
+        responses.push(
+          makeLines(
+            `One-time expense notes (${selectedMonthLabel}):`,
+            structuredNotes.slice(0, 8).map((n) => `${n.code ? `${n.code}. ` : ''}${n.category}: ${n.description}`)
+          )
+        )
+      } else {
+        responses.push('No parsed notes are available for one-time expense analysis this month.')
+      }
+    }
+
+    if (wantsVendorSummary) {
+      if (vendorNoteSummary.length) {
+        responses.push(
+          makeLines(
+            `Vendor summary from notes (${selectedMonthLabel}):`,
+            vendorNoteSummary.slice(0, 8).map((v) => `${v.vendor}: ${formatCurrencyFull(v.total)} across ${v.count} item${v.count === 1 ? '' : 's'}`)
+          )
+        )
+      } else if (structuredNotes.length) {
+        responses.push('Notes were found, but vendor/amount fields could not be parsed consistently.')
+      } else {
+        responses.push('No notes are available for vendor summary this month.')
+      }
+    }
+
+    if (wantsVarianceExplain) {
+      const topExpenseVarianceItems = topVarianceItems.filter((item) => item.kind !== 'revenue')
+      const evidenceLines: string[] = []
+      for (const item of topExpenseVarianceItems.slice(0, 3)) {
+        const labelWords = item.label
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter((w) => w.length >= 4 && !['total', 'other', 'operating', 'expense', 'expenses', 'unclassified'].includes(w))
+        const match = structuredNotes.find((n) => {
+          const hay = `${n.category} ${n.description}`.toLowerCase()
+          return labelWords.some((w) => hay.includes(w))
+        })
+        if (!match) continue
+        evidenceLines.push(
+          `${item.label} variance ${formatSignedCurrency(item.viewDelta)} likely relates to ${match.code ? `${match.code}. ` : ''}${match.category}${match.amount ? ` (${formatCurrencyFull(match.amount)})` : ''}${match.vendor ? ` from ${match.vendor}` : ''}.`
+        )
+      }
+
+      if (evidenceLines.length) {
+        responses.push(makeLines(`Variance explanation using notes (${selectedMonthLabel}):`, evidenceLines))
+      } else if (topVarianceItems.length) {
+        responses.push(
+          makeLines(
+            `Top variance drivers (${selectedMonthLabel}):`,
+            topVarianceItems.slice(0, 3).map((item) => `${item.label}: ${formatSignedCurrency(item.viewDelta)}`)
+          )
+        )
+      } else {
+        responses.push('I could not find enough variance detail to explain this month.')
+      }
+    }
+
     if (wantsSources) {
       if (monthData.sources?.length) {
         responses.push(
@@ -1007,6 +1149,8 @@ export default function DashboardPage() {
         'How do receivables look this month?',
         'Any risks or highlights in the expenses?',
         'Show the NOI trend for the last 6 months.',
+        'Show unusual one-time expenses from notes.',
+        'Summarize notes by vendor.',
       ]
     : [
         `What data is available for ${selectedMonthLabel}?`,

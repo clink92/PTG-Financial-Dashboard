@@ -761,6 +761,49 @@ function extractBankReconciliation(normalized: string) {
   return Object.keys(out).length ? out : null
 }
 
+function extractNotesFromFS(text: string): string[] | null {
+  const lines = (text || '')
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const start = lines.findIndex((line) => /^NOTES\b/i.test(line))
+  if (start === -1) return null
+
+  const out: string[] = []
+  let currentLetter: string | null = null
+  let currentTitle = ''
+  let currentBodyParts: string[] = []
+
+  const flushCurrent = () => {
+    if (!currentLetter || !currentTitle) return
+    const body = currentBodyParts.join(' ').replace(/\s+/g, ' ').trim()
+    if (!body) return
+    out.push(`${currentLetter}. ${currentTitle}: ${body}`)
+  }
+
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i]
+    if (/^Page\s+\d+\s+of\s+\d+$/i.test(line)) break
+
+    const headerMatch = line.match(/^([A-Z])\s+([A-Z][A-Z0-9/&,\- ]{2,})$/)
+    if (headerMatch) {
+      flushCurrent()
+      currentLetter = headerMatch[1]
+      currentTitle = headerMatch[2].trim()
+      currentBodyParts = []
+      continue
+    }
+
+    if (currentLetter) {
+      currentBodyParts.push(line)
+    }
+  }
+
+  flushCurrent()
+  return out.length ? out.slice(0, 30) : null
+}
+
 export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextInput[]): PdfImportResult {
   const warnings: string[] = []
   const extracted: PdfImportExtracted = { sources: [] }
@@ -771,6 +814,7 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
   let cash: PdfImportExtracted['cash']
   let receivables: PdfImportExtracted['receivables']
   let bankReconciliation: PdfImportExtracted['bankReconciliation']
+  let notes: string[] = []
   let lineItems: NonNullable<NonNullable<PdfImportExtracted['incomeStatement']>['lineItems']> | undefined
 
   const isFsNamed = (fileName: string) => {
@@ -802,6 +846,8 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
       cash = cash ?? extractCashTotals(normalized) ?? undefined
       receivables = receivables ?? extractReceivablesFromFS(normalized) ?? undefined
       lineItems = lineItems ?? extractBudgetLineItemsFromText(input.text) ?? undefined
+      const parsedNotes = extractNotesFromFS(input.text)
+      if (parsedNotes?.length) notes = [...notes, ...parsedNotes]
     }
 
     if (kind === 'cash-summary') {
@@ -847,6 +893,10 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
       bankReconciliation = extractBankReconciliation(normalized) ?? undefined
     }
     if (!lineItems && /(BUDGET|VARIANCE)\b/i.test(normalized)) lineItems = extractBudgetLineItemsFromText(input.text) ?? undefined
+    if (!notes.length && /(^|\s)NOTES(\s|$)/i.test(input.text)) {
+      const parsedNotes = extractNotesFromFS(input.text)
+      if (parsedNotes?.length) notes = parsedNotes
+    }
   }
 
   // Legacy: if the user uploaded exactly 3 PDFs and we confidently detected
@@ -990,7 +1040,8 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
     }
   }
 
-  data.notes = [`Imported from PDFs on ${new Date().toLocaleString()}.`]
+  const dedupedNotes = Array.from(new Set(notes))
+  data.notes = [`Imported from PDFs on ${new Date().toLocaleString()}.`, ...dedupedNotes]
 
   return { data, extracted, warnings }
 }

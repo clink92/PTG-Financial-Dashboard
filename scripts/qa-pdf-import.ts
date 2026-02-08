@@ -32,6 +32,12 @@ async function main() {
     A/R OVER 60 DAYS 8,184
     A/R OVER 90 DAYS 33,532
     ------TOTAL------ 74,948$
+
+    NOTES
+    A FIRE PROTECTION
+    PAYMENT TO AMERICAN FIRE RESTORATION IN 8/2025 OF $4,852 FOR RENDERING OF SERVICES.
+    B FLOORING REPAIRS
+    PAYMENT TO CMP CONTRACTING IN 07/2025 OF $849 FOR A-72 FLOOR REPAIRING.
   `
 
   const bankReconciliationText = `
@@ -95,6 +101,7 @@ async function main() {
   assert(typeof result.data.bankReconciliation?.depositsInTransit === 'number', 'QA FAIL: Deposits in transit not extracted')
   assert(typeof result.data.bankReconciliation?.outstandingChecks === 'number', 'QA FAIL: Outstanding checks not extracted')
   assert(Boolean(result.data.incomeStatement?.lineItems?.length), 'QA FAIL: Budget line items not extracted')
+  assert(Boolean(result.data.notes?.some((n) => n.includes('A. FIRE PROTECTION'))), 'QA FAIL: FS notes not extracted')
 
   // Persist + reload
   await setStoredMonthData(monthKey, result.data)
