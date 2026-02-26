@@ -147,6 +147,7 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview')
   const [incomeView, setIncomeView] = useState<'mtd' | 'ytd'>('mtd')
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ revenue: false, expenses: false, other: false })
+  const [expandedBreakdownCategories, setExpandedBreakdownCategories] = useState<Record<string, boolean>>({})
   const [revenueSort, setRevenueSort] = useState<{ col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }>({ col: 'actual', dir: 'desc' })
   const [expenseSort, setExpenseSort] = useState<{ col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }>({ col: 'actual', dir: 'desc' })
   const autoSelectedMonthRef = useRef(false)
@@ -517,6 +518,83 @@ export default function DashboardPage() {
   const lineItemsForView = budgetLineItems
     .filter((x) => Number.isFinite(x.actual) && Number.isFinite(x.budget))
     .map(selectLineItemView)
+  type LineItemView = ReturnType<typeof selectLineItemView>
+  type BreakdownDisplayItem = LineItemView & {
+    viewActual: number
+    viewBudget: number
+    viewDelta: number
+    category?: string
+  }
+  type BreakdownGroup = {
+    category: string
+    items: BreakdownDisplayItem[]
+    subtotalActual: number
+    subtotalBudget: number
+    subtotalDelta: number
+    isUnclassified: boolean
+  }
+
+  const hasParserCategory = (item: { category?: string | null }) => typeof item.category === 'string' && item.category.trim().length > 0
+  const categoryLabelForItem = (item: { label: string; category?: string | null }) => {
+    if (hasParserCategory(item)) return String(item.category).trim()
+    return /UNCLASSIFIED/i.test(item.label) ? 'Unclassified' : 'Unclassified'
+  }
+  const buildBreakdownGroups = <T extends BreakdownDisplayItem>(items: T[]): BreakdownGroup[] => {
+    const groups: BreakdownGroup[] = []
+    const groupMap = new Map<string, BreakdownGroup>()
+    for (const item of items) {
+      const category = categoryLabelForItem(item)
+      let group = groupMap.get(category)
+      if (!group) {
+        group = {
+          category,
+          items: [],
+          subtotalActual: 0,
+          subtotalBudget: 0,
+          subtotalDelta: 0,
+          isUnclassified: /^unclassified$/i.test(category),
+        }
+        groupMap.set(category, group)
+        groups.push(group)
+      }
+      group.items.push(item)
+      group.subtotalActual += item.viewActual || 0
+      group.subtotalBudget += item.viewBudget || 0
+      group.subtotalDelta += item.viewDelta || 0
+    }
+    return groups
+      .map((group, index) => ({ group, index }))
+      .sort((a, b) => {
+        // Keep the balancing bucket at the end, but sort all real categories by largest actual subtotal.
+        if (a.group.isUnclassified !== b.group.isUnclassified) {
+          return a.group.isUnclassified ? 1 : -1
+        }
+        const byActual = (b.group.subtotalActual || 0) - (a.group.subtotalActual || 0)
+        if (byActual !== 0) return byActual
+        return a.index - b.index
+      })
+      .map(({ group }) => group)
+  }
+  const breakdownCategoryKey = (scope: 'revenue' | 'expense', category: string) => `${scope}:${category.toLowerCase()}`
+  const isBreakdownCategoryExpanded = (scope: 'revenue' | 'expense', category: string) =>
+    expandedBreakdownCategories[breakdownCategoryKey(scope, category)] ?? false
+  const toggleBreakdownCategory = (scope: 'revenue' | 'expense', category: string) =>
+    setExpandedBreakdownCategories((prev) => {
+      const key = breakdownCategoryKey(scope, category)
+      return { ...prev, [key]: !(prev[key] ?? false) }
+    })
+  const setAllBreakdownCategories = (
+    scope: 'revenue' | 'expense',
+    categories: string[],
+    expanded: boolean
+  ) =>
+    setExpandedBreakdownCategories((prev) => {
+      const next = { ...prev }
+      for (const category of categories) {
+        next[breakdownCategoryKey(scope, category)] = expanded
+      }
+      return next
+    })
 
   const hasYtdData = lineItemsForView.some((x) => x.viewIsYtd)
   const revenueLineItems = lineItemsForView.filter((x) => x.kind === 'revenue')
@@ -624,6 +702,7 @@ export default function DashboardPage() {
   const revenueItemsWithBalancing = Math.abs(revenueDiff) > 1 
     ? [...revenueItemsRaw, { 
         label: 'Other Revenue (Unclassified)', 
+        category: undefined,
         kind: 'revenue' as const, 
         viewActual: revenueDiff, 
         viewBudget: revenueBudgetDiff, 
@@ -634,7 +713,13 @@ export default function DashboardPage() {
         delta: revenueDiff - revenueBudgetDiff
       }]
     : revenueItemsRaw
-  const revenueItems = sortItems(revenueItemsWithBalancing, revenueSort)
+  const hasRevenueCategoryGrouping = revenueItemsWithBalancing.some((item) => hasParserCategory(item))
+  const revenueItemsFlat = sortItems(revenueItemsWithBalancing, revenueSort)
+  const revenueItems = hasRevenueCategoryGrouping ? revenueItemsWithBalancing : revenueItemsFlat
+  const revenueItemGroups = hasRevenueCategoryGrouping ? buildBreakdownGroups(revenueItemsWithBalancing as BreakdownDisplayItem[]) : []
+  const revenueExpandedGroupCount = revenueItemGroups.filter((g) => isBreakdownCategoryExpanded('revenue', g.category)).length
+  const allRevenueGroupsExpanded = revenueItemGroups.length > 0 && revenueExpandedGroupCount === revenueItemGroups.length
+  const anyRevenueGroupsExpanded = revenueExpandedGroupCount > 0
 
   const sumExpensesRaw = expenseItemsRaw.reduce((acc, x) => acc + (x.viewActual || 0), 0)
   const sumExpensesBudgetRaw = expenseItemsRaw.reduce((acc, x) => acc + (x.viewBudget || 0), 0)
@@ -646,6 +731,7 @@ export default function DashboardPage() {
   const expenseItemsWithBalancing = Math.abs(expensesDiff) > 1
     ? [...expenseItemsRaw, {
         label: 'Other Expenses (Unclassified)',
+        category: undefined,
         kind: 'expense' as const,
         viewActual: expensesDiff,
         viewBudget: expensesBudgetDiff,
@@ -656,11 +742,19 @@ export default function DashboardPage() {
         delta: expensesDiff - expensesBudgetDiff
       }]
     : expenseItemsRaw
-  const expenseItems = sortItems(expenseItemsWithBalancing, expenseSort)
+  const hasExpenseCategoryGrouping = expenseItemsWithBalancing.some((item) => hasParserCategory(item))
+  const expenseItemsFlat = sortItems(expenseItemsWithBalancing, expenseSort)
+  const expenseItems = hasExpenseCategoryGrouping ? expenseItemsWithBalancing : expenseItemsFlat
+  const expenseItemGroups = hasExpenseCategoryGrouping ? buildBreakdownGroups(expenseItemsWithBalancing as BreakdownDisplayItem[]) : []
+  const expenseExpandedGroupCount = expenseItemGroups.filter((g) => isBreakdownCategoryExpanded('expense', g.category)).length
+  const allExpenseGroupsExpanded = expenseItemGroups.length > 0 && expenseExpandedGroupCount === expenseItemGroups.length
+  const anyExpenseGroupsExpanded = expenseExpandedGroupCount > 0
 
   // Final sums (should now match FS totals)
   const sumRevenue = revenueItems.reduce((acc, x) => acc + (x.viewActual || 0), 0)
   const sumExpenses = expenseItems.reduce((acc, x) => acc + (x.viewActual || 0), 0)
+  const sumRevenueBudget = revenueItems.reduce((acc, x) => acc + (x.viewBudget || 0), 0)
+  const sumExpensesBudget = expenseItems.reduce((acc, x) => acc + (x.viewBudget || 0), 0)
 
   const expenseTotalActual =
     typeof incomeStatement?.totalOperatingExpenses?.actual === 'number'
@@ -1776,67 +1870,221 @@ export default function DashboardPage() {
                     </button>
                     {expandedSections.revenue && (
                       <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr style={{ background: 'rgba(34, 197, 94, 0.04)' }}>
-                              <th 
-                                onClick={() => setRevenueSort(s => ({ col: 'label', dir: s.col === 'label' && s.dir === 'asc' ? 'desc' : 'asc' }))}
-                                style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                        {hasRevenueCategoryGrouping ? (
+                          <>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              padding: '8px 12px',
+                              background: 'rgba(34, 197, 94, 0.03)',
+                              borderBottom: '1px solid var(--border)',
+                            }}
+                          >
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                              Categories: {revenueItemGroups.length} • Expanded: {revenueExpandedGroupCount}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => setAllBreakdownCategories('revenue', revenueItemGroups.map((g) => g.category), true)}
+                                disabled={allRevenueGroupsExpanded}
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: 12,
+                                  borderRadius: 6,
+                                  border: '1px solid var(--border)',
+                                  background: allRevenueGroupsExpanded ? 'rgba(148, 163, 184, 0.12)' : 'white',
+                                  color: allRevenueGroupsExpanded ? 'var(--text-muted)' : 'var(--text-primary)',
+                                  cursor: allRevenueGroupsExpanded ? 'not-allowed' : 'pointer',
+                                }}
                               >
-                                Item {revenueSort.col === 'label' && (revenueSort.dir === 'asc' ? '↑' : '↓')}
-                              </th>
-                              <th 
-                                onClick={() => setRevenueSort(s => ({ col: 'actual', dir: s.col === 'actual' && s.dir === 'desc' ? 'asc' : 'desc' }))}
-                                style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                Expand all
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAllBreakdownCategories('revenue', revenueItemGroups.map((g) => g.category), false)}
+                                disabled={!anyRevenueGroupsExpanded}
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: 12,
+                                  borderRadius: 6,
+                                  border: '1px solid var(--border)',
+                                  background: !anyRevenueGroupsExpanded ? 'rgba(148, 163, 184, 0.12)' : 'white',
+                                  color: !anyRevenueGroupsExpanded ? 'var(--text-muted)' : 'var(--text-primary)',
+                                  cursor: !anyRevenueGroupsExpanded ? 'not-allowed' : 'pointer',
+                                }}
                               >
-                                Actual {revenueSort.col === 'actual' && (revenueSort.dir === 'asc' ? '↑' : '↓')}
-                              </th>
-                              <th 
-                                onClick={() => setRevenueSort(s => ({ col: 'budget', dir: s.col === 'budget' && s.dir === 'desc' ? 'asc' : 'desc' }))}
-                                style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
-                              >
-                                Budget {revenueSort.col === 'budget' && (revenueSort.dir === 'asc' ? '↑' : '↓')}
-                              </th>
-                              <th 
-                                onClick={() => setRevenueSort(s => ({ col: 'variance', dir: s.col === 'variance' && s.dir === 'desc' ? 'asc' : 'desc' }))}
-                                style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
-                              >
-                                Variance {revenueSort.col === 'variance' && (revenueSort.dir === 'asc' ? '↑' : '↓')}
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {revenueItems.map((item, idx) => (
-                              <tr key={idx} style={{ 
-                                borderBottom: '1px solid var(--border)',
-                                background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
-                              }}>
-                                <td style={{ 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
-                                  color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
-                                }}>{item.label}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
-                                <td style={{ 
-                                  textAlign: 'right', 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  color: item.viewDelta >= 0 ? '#22c55e' : '#ef4444'
-                                }}>{formatCurrency(item.viewDelta)}</td>
+                                Collapse all
+                              </button>
+                            </div>
+                          </div>
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ background: 'rgba(34, 197, 94, 0.04)' }}>
+                                <th style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Item</th>
+                                <th style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Actual</th>
+                                <th style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Budget</th>
+                                <th style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Variance</th>
                               </tr>
-                            ))}
-                          </tbody>
-                          <tfoot>
-                            <tr style={{ background: 'rgba(34, 197, 94, 0.12)', fontWeight: 600 }}>
-                              <td style={{ padding: '10px 16px', fontSize: 13 }}>Total Revenue</td>
-                              <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}>{formatCurrency(sumRevenue)}</td>
-                              <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(revenueItems.reduce((acc, x) => acc + (x.viewBudget || 0), 0))}</td>
-                              <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}></td>
-                            </tr>
-                          </tfoot>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {revenueItemGroups.flatMap((group, groupIdx) => {
+                                const groupExpanded = isBreakdownCategoryExpanded('revenue', group.category)
+                                return [
+                                  <tr
+                                    key={`rev-group-${groupIdx}-${group.category}`}
+                                    onClick={() => toggleBreakdownCategory('revenue', group.category)}
+                                    style={{
+                                      borderTop: groupIdx === 0 ? 'none' : '1px solid var(--border)',
+                                      borderBottom: '1px solid var(--border)',
+                                      background: group.isUnclassified ? 'rgba(245, 158, 11, 0.12)' : 'rgba(34, 197, 94, 0.10)',
+                                      cursor: 'pointer',
+                                    }}
+                                    title={groupExpanded ? 'Collapse category' : 'Expand category'}
+                                  >
+                                    <td
+                                      style={{
+                                        padding: '8px 16px',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        letterSpacing: '0.04em',
+                                        textTransform: 'uppercase',
+                                        color: group.isUnclassified ? '#b45309' : '#166534',
+                                      }}
+                                    >
+                                      <span style={{ marginRight: 8, color: 'var(--text-muted)' }}>{groupExpanded ? '▾' : '▸'}</span>
+                                      {group.category}
+                                      <span style={{ marginLeft: 8, fontSize: 11, letterSpacing: 'normal', textTransform: 'none', color: 'var(--text-muted)' }}>
+                                        ({group.items.length})
+                                      </span>
+                                    </td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 12, fontWeight: 600 }}>{formatCurrency(group.subtotalActual)}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>{formatCurrency(group.subtotalBudget)}</td>
+                                    <td
+                                      style={{
+                                        textAlign: 'right',
+                                        padding: '8px 16px',
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        color: group.subtotalDelta >= 0 ? '#22c55e' : '#ef4444',
+                                      }}
+                                    >
+                                      {formatCurrency(group.subtotalDelta)}
+                                    </td>
+                                  </tr>,
+                                  ...(groupExpanded
+                                    ? group.items.map((item, idx) => (
+                                  <tr
+                                    key={`rev-item-${groupIdx}-${idx}-${item.label}`}
+                                    style={{
+                                      borderBottom: '1px solid var(--border)',
+                                      background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined,
+                                    }}
+                                  >
+                                    <td
+                                      style={{
+                                        padding: '8px 16px 8px 28px',
+                                        fontSize: 13,
+                                        fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                        color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined,
+                                      }}
+                                    >
+                                      {item.label}
+                                    </td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
+                                    <td
+                                      style={{
+                                        textAlign: 'right',
+                                        padding: '8px 16px',
+                                        fontSize: 13,
+                                        color: item.viewDelta >= 0 ? '#22c55e' : '#ef4444',
+                                      }}
+                                    >
+                                      {formatCurrency(item.viewDelta)}
+                                    </td>
+                                  </tr>
+                                      ))
+                                    : []),
+                                ]
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ background: 'rgba(34, 197, 94, 0.12)', fontWeight: 600 }}>
+                                <td style={{ padding: '10px 16px', fontSize: 13 }}>Total Revenue</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}>{formatCurrency(sumRevenue)}</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(sumRevenueBudget)}</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}></td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                          </>
+                        ) : (
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ background: 'rgba(34, 197, 94, 0.04)' }}>
+                                <th 
+                                  onClick={() => setRevenueSort(s => ({ col: 'label', dir: s.col === 'label' && s.dir === 'asc' ? 'desc' : 'asc' }))}
+                                  style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                >
+                                  Item {revenueSort.col === 'label' && (revenueSort.dir === 'asc' ? '↑' : '↓')}
+                                </th>
+                                <th 
+                                  onClick={() => setRevenueSort(s => ({ col: 'actual', dir: s.col === 'actual' && s.dir === 'desc' ? 'asc' : 'desc' }))}
+                                  style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                >
+                                  Actual {revenueSort.col === 'actual' && (revenueSort.dir === 'asc' ? '↑' : '↓')}
+                                </th>
+                                <th 
+                                  onClick={() => setRevenueSort(s => ({ col: 'budget', dir: s.col === 'budget' && s.dir === 'desc' ? 'asc' : 'desc' }))}
+                                  style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                >
+                                  Budget {revenueSort.col === 'budget' && (revenueSort.dir === 'asc' ? '↑' : '↓')}
+                                </th>
+                                <th 
+                                  onClick={() => setRevenueSort(s => ({ col: 'variance', dir: s.col === 'variance' && s.dir === 'desc' ? 'asc' : 'desc' }))}
+                                  style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                >
+                                  Variance {revenueSort.col === 'variance' && (revenueSort.dir === 'asc' ? '↑' : '↓')}
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {revenueItems.map((item, idx) => (
+                                <tr key={idx} style={{ 
+                                  borderBottom: '1px solid var(--border)',
+                                  background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
+                                }}>
+                                  <td style={{ 
+                                    padding: '8px 16px', 
+                                    fontSize: 13,
+                                    fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                    color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
+                                  }}>{item.label}</td>
+                                  <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
+                                  <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
+                                  <td style={{ 
+                                    textAlign: 'right', 
+                                    padding: '8px 16px', 
+                                    fontSize: 13,
+                                    color: item.viewDelta >= 0 ? '#22c55e' : '#ef4444'
+                                  }}>{formatCurrency(item.viewDelta)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ background: 'rgba(34, 197, 94, 0.12)', fontWeight: 600 }}>
+                                <td style={{ padding: '10px 16px', fontSize: 13 }}>Total Revenue</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}>{formatCurrency(sumRevenue)}</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(sumRevenueBudget)}</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}></td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1872,67 +2120,221 @@ export default function DashboardPage() {
                     </button>
                     {expandedSections.expenses && (
                       <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr style={{ background: 'rgba(239, 68, 68, 0.04)' }}>
-                              <th 
-                                onClick={() => setExpenseSort(s => ({ col: 'label', dir: s.col === 'label' && s.dir === 'asc' ? 'desc' : 'asc' }))}
-                                style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                        {hasExpenseCategoryGrouping ? (
+                          <>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              padding: '8px 12px',
+                              background: 'rgba(239, 68, 68, 0.02)',
+                              borderBottom: '1px solid var(--border)',
+                            }}
+                          >
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                              Categories: {expenseItemGroups.length} • Expanded: {expenseExpandedGroupCount}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => setAllBreakdownCategories('expense', expenseItemGroups.map((g) => g.category), true)}
+                                disabled={allExpenseGroupsExpanded}
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: 12,
+                                  borderRadius: 6,
+                                  border: '1px solid var(--border)',
+                                  background: allExpenseGroupsExpanded ? 'rgba(148, 163, 184, 0.12)' : 'white',
+                                  color: allExpenseGroupsExpanded ? 'var(--text-muted)' : 'var(--text-primary)',
+                                  cursor: allExpenseGroupsExpanded ? 'not-allowed' : 'pointer',
+                                }}
                               >
-                                Item {expenseSort.col === 'label' && (expenseSort.dir === 'asc' ? '↑' : '↓')}
-                              </th>
-                              <th 
-                                onClick={() => setExpenseSort(s => ({ col: 'actual', dir: s.col === 'actual' && s.dir === 'desc' ? 'asc' : 'desc' }))}
-                                style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                Expand all
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAllBreakdownCategories('expense', expenseItemGroups.map((g) => g.category), false)}
+                                disabled={!anyExpenseGroupsExpanded}
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: 12,
+                                  borderRadius: 6,
+                                  border: '1px solid var(--border)',
+                                  background: !anyExpenseGroupsExpanded ? 'rgba(148, 163, 184, 0.12)' : 'white',
+                                  color: !anyExpenseGroupsExpanded ? 'var(--text-muted)' : 'var(--text-primary)',
+                                  cursor: !anyExpenseGroupsExpanded ? 'not-allowed' : 'pointer',
+                                }}
                               >
-                                Actual {expenseSort.col === 'actual' && (expenseSort.dir === 'asc' ? '↑' : '↓')}
-                              </th>
-                              <th 
-                                onClick={() => setExpenseSort(s => ({ col: 'budget', dir: s.col === 'budget' && s.dir === 'desc' ? 'asc' : 'desc' }))}
-                                style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
-                              >
-                                Budget {expenseSort.col === 'budget' && (expenseSort.dir === 'asc' ? '↑' : '↓')}
-                              </th>
-                              <th 
-                                onClick={() => setExpenseSort(s => ({ col: 'variance', dir: s.col === 'variance' && s.dir === 'desc' ? 'asc' : 'desc' }))}
-                                style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
-                              >
-                                Variance {expenseSort.col === 'variance' && (expenseSort.dir === 'asc' ? '↑' : '↓')}
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {expenseItems.map((item, idx) => (
-                              <tr key={idx} style={{ 
-                                borderBottom: '1px solid var(--border)',
-                                background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
-                              }}>
-                                <td style={{ 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
-                                  color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
-                                }}>{item.label}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
-                                <td style={{ 
-                                  textAlign: 'right', 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444'
-                                }}>{formatCurrency(item.viewDelta)}</td>
+                                Collapse all
+                              </button>
+                            </div>
+                          </div>
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ background: 'rgba(239, 68, 68, 0.04)' }}>
+                                <th style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Item</th>
+                                <th style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Actual</th>
+                                <th style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Budget</th>
+                                <th style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Variance</th>
                               </tr>
-                            ))}
-                          </tbody>
-                          <tfoot>
-                            <tr style={{ background: 'rgba(239, 68, 68, 0.12)', fontWeight: 600 }}>
-                              <td style={{ padding: '10px 16px', fontSize: 13 }}>Total Expenses</td>
-                              <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}>{formatCurrency(sumExpenses)}</td>
-                              <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(expenseItems.reduce((acc, x) => acc + (x.viewBudget || 0), 0))}</td>
-                              <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}></td>
-                            </tr>
-                          </tfoot>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {expenseItemGroups.flatMap((group, groupIdx) => {
+                                const groupExpanded = isBreakdownCategoryExpanded('expense', group.category)
+                                return [
+                                  <tr
+                                    key={`exp-group-${groupIdx}-${group.category}`}
+                                    onClick={() => toggleBreakdownCategory('expense', group.category)}
+                                    style={{
+                                      borderTop: groupIdx === 0 ? 'none' : '1px solid var(--border)',
+                                      borderBottom: '1px solid var(--border)',
+                                      background: group.isUnclassified ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.08)',
+                                      cursor: 'pointer',
+                                    }}
+                                    title={groupExpanded ? 'Collapse category' : 'Expand category'}
+                                  >
+                                    <td
+                                      style={{
+                                        padding: '8px 16px',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        letterSpacing: '0.04em',
+                                        textTransform: 'uppercase',
+                                        color: group.isUnclassified ? '#b45309' : '#991b1b',
+                                      }}
+                                    >
+                                      <span style={{ marginRight: 8, color: 'var(--text-muted)' }}>{groupExpanded ? '▾' : '▸'}</span>
+                                      {group.category}
+                                      <span style={{ marginLeft: 8, fontSize: 11, letterSpacing: 'normal', textTransform: 'none', color: 'var(--text-muted)' }}>
+                                        ({group.items.length})
+                                      </span>
+                                    </td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 12, fontWeight: 600 }}>{formatCurrency(group.subtotalActual)}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>{formatCurrency(group.subtotalBudget)}</td>
+                                    <td
+                                      style={{
+                                        textAlign: 'right',
+                                        padding: '8px 16px',
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        color: group.subtotalDelta <= 0 ? '#22c55e' : '#ef4444',
+                                      }}
+                                    >
+                                      {formatCurrency(group.subtotalDelta)}
+                                    </td>
+                                  </tr>,
+                                  ...(groupExpanded
+                                    ? group.items.map((item, idx) => (
+                                  <tr
+                                    key={`exp-item-${groupIdx}-${idx}-${item.label}`}
+                                    style={{
+                                      borderBottom: '1px solid var(--border)',
+                                      background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined,
+                                    }}
+                                  >
+                                    <td
+                                      style={{
+                                        padding: '8px 16px 8px 28px',
+                                        fontSize: 13,
+                                        fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                        color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined,
+                                      }}
+                                    >
+                                      {item.label}
+                                    </td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
+                                    <td
+                                      style={{
+                                        textAlign: 'right',
+                                        padding: '8px 16px',
+                                        fontSize: 13,
+                                        color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444',
+                                      }}
+                                    >
+                                      {formatCurrency(item.viewDelta)}
+                                    </td>
+                                  </tr>
+                                      ))
+                                    : []),
+                                ]
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ background: 'rgba(239, 68, 68, 0.12)', fontWeight: 600 }}>
+                                <td style={{ padding: '10px 16px', fontSize: 13 }}>Total Expenses</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}>{formatCurrency(sumExpenses)}</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(sumExpensesBudget)}</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}></td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                          </>
+                        ) : (
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ background: 'rgba(239, 68, 68, 0.04)' }}>
+                                <th 
+                                  onClick={() => setExpenseSort(s => ({ col: 'label', dir: s.col === 'label' && s.dir === 'asc' ? 'desc' : 'asc' }))}
+                                  style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                >
+                                  Item {expenseSort.col === 'label' && (expenseSort.dir === 'asc' ? '↑' : '↓')}
+                                </th>
+                                <th 
+                                  onClick={() => setExpenseSort(s => ({ col: 'actual', dir: s.col === 'actual' && s.dir === 'desc' ? 'asc' : 'desc' }))}
+                                  style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                >
+                                  Actual {expenseSort.col === 'actual' && (expenseSort.dir === 'asc' ? '↑' : '↓')}
+                                </th>
+                                <th 
+                                  onClick={() => setExpenseSort(s => ({ col: 'budget', dir: s.col === 'budget' && s.dir === 'desc' ? 'asc' : 'desc' }))}
+                                  style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                >
+                                  Budget {expenseSort.col === 'budget' && (expenseSort.dir === 'asc' ? '↑' : '↓')}
+                                </th>
+                                <th 
+                                  onClick={() => setExpenseSort(s => ({ col: 'variance', dir: s.col === 'variance' && s.dir === 'desc' ? 'asc' : 'desc' }))}
+                                  style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                                >
+                                  Variance {expenseSort.col === 'variance' && (expenseSort.dir === 'asc' ? '↑' : '↓')}
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {expenseItems.map((item, idx) => (
+                                <tr key={idx} style={{ 
+                                  borderBottom: '1px solid var(--border)',
+                                  background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
+                                }}>
+                                  <td style={{ 
+                                    padding: '8px 16px', 
+                                    fontSize: 13,
+                                    fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                    color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
+                                  }}>{item.label}</td>
+                                  <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
+                                  <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
+                                  <td style={{ 
+                                    textAlign: 'right', 
+                                    padding: '8px 16px', 
+                                    fontSize: 13,
+                                    color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444'
+                                  }}>{formatCurrency(item.viewDelta)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ background: 'rgba(239, 68, 68, 0.12)', fontWeight: 600 }}>
+                                <td style={{ padding: '10px 16px', fontSize: 13 }}>Total Expenses</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}>{formatCurrency(sumExpenses)}</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(sumExpensesBudget)}</td>
+                                <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}></td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        )}
                       </div>
                     )}
                   </div>

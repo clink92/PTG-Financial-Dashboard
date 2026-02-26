@@ -37,6 +37,7 @@ export interface MonthlyData {
     totalOperatingExpenses?: { actual: number; budget: number; variance: number }
     lineItems?: Array<{
       label: string
+      category?: string
       kind: 'revenue' | 'expense' | 'other'
       actual: number
       budget: number

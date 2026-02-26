@@ -1,0 +1,4 @@
+Total messages: 2 (Errors: 1, Warnings: 0)
+Returning 1 messages for level "error"
+
+[ERROR] Failed to load resource: the server responded with a status of 404 () @ https://ptg-financial-dashboard-dcnmc0xkd-craig-link-s-projects.vercel.app/favicon.ico:0
