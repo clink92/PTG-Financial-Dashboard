@@ -16,9 +16,10 @@ import {
   ArcElement,
 } from 'chart.js'
 import { Line, Pie } from 'react-chartjs-2'
-import { addMonthsToMonthKey, compareMonthKeysAsc, getMonthKeyFromDate, getMonthOptions, getTrailingMonthKeys, monthKeyToPeriod, uniqueMonthKeys, type MonthOption, type MonthlyData } from '@/lib/data'
+import { addMonthsToMonthKey, compareMonthKeysAsc, getMonthKeyFromDate, getMonthOptions, getTrailingMonthKeys, monthKeyToPeriod, uniqueMonthKeys, type MonthOption, type MonthlyData, type NoteEntry } from '@/lib/data'
 import { generateInsights, generateAISummary, AIInsight } from '@/lib/insights'
-import type { PdfImportExtracted } from '@/lib/pdfImport'
+import { parseStructuredNotesFromRaw, type PdfImportExtracted } from '@/lib/pdfImport'
+import { buildLineItemDictionary, mapNotesToLineItems } from '@/lib/noteMapping'
 
 ChartJS.register(
   CategoryScale,
@@ -54,49 +55,6 @@ type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   content: string
-}
-
-type StructuredFsNote = {
-  code?: string
-  category: string
-  vendor?: string
-  amount?: number
-  mmYyyy?: string
-  description: string
-  raw: string
-}
-
-function parseCurrencyToken(raw: string | undefined): number | undefined {
-  if (!raw) return undefined
-  const cleaned = raw.replace(/[$,]/g, '').trim()
-  const n = Number(cleaned)
-  return Number.isFinite(n) ? n : undefined
-}
-
-function parseStructuredFsNotes(notes: string[] | undefined): StructuredFsNote[] {
-  if (!notes?.length) return []
-  const out: StructuredFsNote[] = []
-
-  for (const note of notes) {
-    const n = (note || '').trim()
-    if (!n || /^Imported from PDFs on\b/i.test(n)) continue
-
-    const headerMatch = n.match(/^([A-Z])\.\s+([^:]+):\s+(.+)$/)
-    const code = headerMatch?.[1]
-    const category = (headerMatch?.[2] || 'General').trim()
-    const body = (headerMatch?.[3] || n).trim()
-
-    const clauses = body.match(/PAYMENT TO\s+.+?(?=(?:PAYMENT TO\s+)|$)/gi) ?? [body]
-    for (const clause of clauses) {
-      const vendor = clause.match(/PAYMENT TO\s+(.+?)\s+IN\s+\d{1,2}\/\d{4}\s+OF\b/i)?.[1]?.trim()
-      const mmYyyy = clause.match(/\bIN\s+(\d{1,2}\/\d{4})\b/i)?.[1]
-      const amount = parseCurrencyToken(clause.match(/\bOF\s+\$?\s*([0-9][0-9,]*(?:\.\d+)?)\b/i)?.[1])
-      const description = (clause.match(/\bFOR\s+(.+)$/i)?.[1] || clause).trim()
-      out.push({ code, category, vendor, amount, mmYyyy, description, raw: n })
-    }
-  }
-
-  return out
 }
 
 async function safeReadJson(res: Response): Promise<unknown> {
@@ -492,6 +450,45 @@ export default function DashboardPage() {
     return `${sign}${Math.abs(value).toFixed(1)}%`
   }
 
+  const countMoneyLikeTokens = (raw?: string | null) => {
+    if (!raw) return 0
+    return raw
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter((tok) => (tok === '-' || tok === '—' || tok === '–') || (/[0-9]/.test(tok) && /^[()$,\d.\-]+$/.test(tok)))
+      .length
+  }
+
+  const normalizeLineItemLabel = (raw?: string | null) => {
+    let s = String(raw || '').replace(/\s+/g, ' ').trim()
+    if (!s) return '—'
+
+    const tokens = s.split(' ').filter(Boolean)
+    let end = tokens.length
+    let stripped = 0
+    while (end > 0) {
+      const tok = tokens[end - 1]
+      const isMoneyLike = (tok === '-' || tok === '—' || tok === '–') || (/[0-9]/.test(tok) && /^[()$,\d.\-]+$/.test(tok))
+      if (!isMoneyLike) break
+      stripped += 1
+      end -= 1
+    }
+    if (stripped >= 2) {
+      s = tokens.slice(0, end).join(' ')
+    }
+
+    s = s.replace(/\s+/g, ' ').trim()
+    s = s.replace(/[\-:,/ ]+$/, '').trim()
+    return s || '—'
+  }
+
+  const formatLineItemLabel = (raw?: string | null, opts?: { maxLength?: number }) => {
+    const maxLength = Math.max(12, opts?.maxLength ?? 64)
+    const s = normalizeLineItemLabel(raw)
+    if (s.length <= maxLength) return s
+    return `${s.slice(0, maxLength - 1).trimEnd()}…`
+  }
+
   const periodFallback = monthKeyToPeriod(selectedMonth)
   const displayMonth = monthData?.month || periodFallback.month || selectedMonth
   const displayYear = monthData?.year || periodFallback.year
@@ -528,7 +525,21 @@ export default function DashboardPage() {
   const topExpenseItems = [...expenseLineItems].sort((a, b) => b.viewActual - a.viewActual).slice(0, 3)
   const topVarianceItems = [...lineItemsForView].sort((a, b) => Math.abs(b.viewDelta) - Math.abs(a.viewDelta)).slice(0, 3)
   const lineItemScopeLabel = incomeView === 'ytd' && hasYtdData ? 'YTD' : 'MTD'
-  const structuredNotes = parseStructuredFsNotes(monthData?.notes)
+  const storedStructuredNotes = monthData?.notesStructured ?? []
+  const fallbackStructuredNotes =
+    monthData && !storedStructuredNotes.length && monthData.notes?.length
+      ? parseStructuredNotesFromRaw(monthData.monthKey, monthData.notes)
+      : []
+  const structuredNotesBase = storedStructuredNotes.length ? storedStructuredNotes : fallbackStructuredNotes
+  const lineItemDictionary = monthData ? buildLineItemDictionary(monthData) : []
+  const structuredNotes: NoteEntry[] =
+    structuredNotesBase.length
+      ? mapNotesToLineItems(
+          structuredNotesBase.map((n) => ({ ...n, mapping: n.mapping })),
+          lineItemDictionary
+        )
+      : structuredNotesBase
+
   const topOneTimeNotes = [...structuredNotes]
     .filter((n) => typeof n.amount === 'number')
     .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))
@@ -550,6 +561,31 @@ export default function DashboardPage() {
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total)
   })()
+  const mappedHighConfidenceNotes = structuredNotes.filter(
+    (n) => n.mapping?.targetKind !== 'unmapped' && (n.mapping?.confidence ?? 0) >= 0.7
+  )
+  const mappedLowConfidenceNotes = structuredNotes.filter((n) => {
+    const c = n.mapping?.confidence ?? 0
+    return n.mapping?.targetKind !== 'unmapped' && c >= 0.4 && c < 0.7
+  })
+  const unmappedNotes = structuredNotes.filter((n) => !n.mapping || n.mapping.targetKind === 'unmapped')
+  const notesDisplayLines = monthData?.notesRaw?.length ? monthData.notesRaw : monthData?.notes || []
+  const totalNotedSpend = structuredNotes.reduce((sum, note) => sum + (typeof note.amount === 'number' ? note.amount : 0), 0)
+  const topVendorsBySpend = vendorNoteSummary.slice(0, 5)
+  const varianceLineItemEvidence = topVarianceItems.slice(0, 3).map((item) => {
+    const linked = mappedHighConfidenceNotes.filter(
+      (n) => n.mapping?.targetLabel?.toLowerCase() === item.label.toLowerCase()
+    )
+    const linkedSpend = linked.reduce((sum, n) => sum + (typeof n.amount === 'number' ? n.amount : 0), 0)
+    const maxConfidence = linked.reduce((best, n) => Math.max(best, n.mapping?.confidence ?? 0), 0)
+    return {
+      label: item.label,
+      variance: item.viewDelta,
+      linkedCount: linked.length,
+      linkedSpend,
+      maxConfidence,
+    }
+  })
 
   // Sort helper function
   const sortItems = <T extends { label: string; viewActual: number; viewBudget: number; viewDelta: number }>(
@@ -649,6 +685,62 @@ export default function DashboardPage() {
   const momCash = calcMoMChange(currentMonthData?.cash?.total, prevMonthData?.cash?.total)
   const momAR = calcMoMChange(currentMonthData?.receivables?.total, prevMonthData?.receivables?.total)
 
+  const cashMovementAnalysis = (() => {
+    const curr = monthData?.cash
+    const prev = prevMonthData?.cash
+    if (!curr || !prev) return null
+
+    const totalDelta =
+      typeof curr.total === 'number' && typeof prev.total === 'number' ? curr.total - prev.total : null
+
+    const rows = [
+      {
+        key: 'operating',
+        label: 'Operating',
+        current: curr.breakdown?.operating ?? curr.operating,
+        previous: prev.breakdown?.operating ?? prev.operating,
+      },
+      {
+        key: 'reserve',
+        label: 'Reserve',
+        current: curr.breakdown?.reserve,
+        previous: prev.breakdown?.reserve,
+      },
+      {
+        key: 'capital',
+        label: 'Capital',
+        current: curr.breakdown?.capital,
+        previous: prev.breakdown?.capital,
+      },
+      {
+        key: 'security',
+        label: 'Escrow/Security',
+        current: curr.breakdown?.security,
+        previous: prev.breakdown?.security,
+      },
+    ]
+      .map((row) => {
+        const delta =
+          typeof row.current === 'number' && typeof row.previous === 'number' ? row.current - row.previous : null
+        return { ...row, delta }
+      })
+      .filter((row) => typeof row.delta === 'number')
+      .sort((a, b) => Math.abs(b.delta ?? 0) - Math.abs(a.delta ?? 0))
+
+    const decreases = rows.filter((r) => (r.delta ?? 0) < 0).slice(0, 2)
+    const increases = rows.filter((r) => (r.delta ?? 0) > 0).slice(0, 2)
+    const netIncomeDelta =
+      typeof monthData?.netIncome?.actual === 'number' && typeof prevMonthData?.netIncome?.actual === 'number'
+        ? monthData.netIncome.actual - prevMonthData.netIncome.actual
+        : null
+    const receivablesDelta =
+      typeof monthData?.receivables?.total === 'number' && typeof prevMonthData?.receivables?.total === 'number'
+        ? monthData.receivables.total - prevMonthData.receivables.total
+        : null
+
+    return { totalDelta, rows, decreases, increases, netIncomeDelta, receivablesDelta }
+  })()
+
   const getLineItemsForMonth = (data: MonthlyData | null) =>
     (data?.incomeStatement?.lineItems ?? [])
       .filter((x) => Number.isFinite(x.actual) && Number.isFinite(x.budget))
@@ -656,8 +748,11 @@ export default function DashboardPage() {
 
   const prevLineItemsForView = getLineItemsForMonth(prevMonthData)
   const prevLineItemsMap = new Map(prevLineItemsForView.map((item) => [item.label.toLowerCase(), item]))
+  const isNonOperatingExpenseLabel = (label?: string | null) =>
+    /^(CAPITAL EXPENDITURES?|CAPITAL EXPENSES?)\b/i.test(normalizeLineItemLabel(label))
 
-  const expenseBreakdownBase = expenseLineItems
+  const expenseBreakdownAll = expenseLineItems
+    .filter((item) => !isNonOperatingExpenseLabel(item.label))
     .filter((item) => Number.isFinite(item.viewActual))
     .map((item) => {
       const prev = prevLineItemsMap.get(item.label.toLowerCase())
@@ -666,6 +761,41 @@ export default function DashboardPage() {
       const mom = calcMoMChange(item.viewActual, prevActual)
       return { ...item, mom, momDelta }
     })
+
+  const isSuspiciousExpenseBreakdownItem = (item: (typeof expenseBreakdownAll)[number]) => {
+    const normalizedLabel = normalizeLineItemLabel(item.label)
+    const total = typeof expenseTotalActual === 'number' && Number.isFinite(expenseTotalActual) ? expenseTotalActual : null
+    const impossibleActualVsTotal =
+      typeof expenseTotalActual === 'number' &&
+      Number.isFinite(expenseTotalActual) &&
+      expenseTotalActual > 0 &&
+      item.viewActual > expenseTotalActual * 1.1
+    const impossibleBudgetVsTotal =
+      typeof total === 'number' &&
+      total > 0 &&
+      Math.abs(item.viewBudget) > total * 1.25
+    const impossibleVarianceVsTotal =
+      typeof total === 'number' &&
+      total > 0 &&
+      Math.abs(item.viewDelta) > total * 1.25
+    const noisyLabel = countMoneyLikeTokens(item.label) >= 4
+    const summaryMetric = /^(NET INCOME|NET OPERATING INCOME)\b/i.test(normalizedLabel)
+    const scheduleOrPayablesArtifact =
+      /^(SCHEDULE|A\/P\b|RESERVE ACCOUNTS?\b)/i.test(normalizedLabel) ||
+      /\bPAYABLES?\b/i.test(normalizedLabel) ||
+      /^(METROPOLITAN|STERLING NATIONAL|IDB)\b/i.test(normalizedLabel)
+    return (
+      impossibleActualVsTotal ||
+      impossibleBudgetVsTotal ||
+      impossibleVarianceVsTotal ||
+      noisyLabel ||
+      summaryMetric ||
+      scheduleOrPayablesArtifact
+    )
+  }
+
+  const suspiciousExpenseItems = expenseBreakdownAll.filter(isSuspiciousExpenseBreakdownItem)
+  const expenseBreakdownBase = expenseBreakdownAll.filter((item) => !isSuspiciousExpenseBreakdownItem(item))
 
   const expenseChartEligible = expenseBreakdownBase.filter((item) => item.viewActual > 0)
   const excludedExpenseItems = expenseBreakdownBase.filter((item) => item.viewActual <= 0)
@@ -994,8 +1124,16 @@ export default function DashboardPage() {
     }
 
     if (wantsNotes) {
-      if (monthData.notes?.length) {
-        responses.push(makeLines('Notes from the FS PDF:', monthData.notes))
+      if (notesDisplayLines.length) {
+        responses.push(makeLines('Notes from the FS PDF:', notesDisplayLines))
+        if (structuredNotes.length) {
+          responses.push(
+            `Parsed ${structuredNotes.length} structured note entr${structuredNotes.length === 1 ? 'y' : 'ies'}: ` +
+              `${mappedHighConfidenceNotes.length} high-confidence mapped, ` +
+              `${mappedLowConfidenceNotes.length} potential mapped, ` +
+              `${unmappedNotes.length} unmapped.`
+          )
+        }
       } else {
         responses.push('No notes were captured for this month.')
       }
@@ -1007,7 +1145,7 @@ export default function DashboardPage() {
           makeLines(
             `Top one-time expense notes (${selectedMonthLabel}):`,
             topOneTimeNotes.map((n) =>
-              `${n.code ? `${n.code}. ` : ''}${n.category}: ${n.vendor || 'Vendor not parsed'} • ${formatCurrencyFull(n.amount)}${n.mmYyyy ? ` • ${n.mmYyyy}` : ''}`
+              `${n.code ? `${n.code}. ` : ''}${n.category}: ${n.vendor || 'Vendor not parsed'} • ${formatCurrencyFull(n.amount)}${n.serviceMonth ? ` • ${n.serviceMonth}` : ''}${n.mapping?.targetLabel ? ` • mapped to ${n.mapping.targetLabel} (${Math.round((n.mapping.confidence || 0) * 100)}%)` : ''}`
             )
           )
         )
@@ -1042,22 +1180,27 @@ export default function DashboardPage() {
       const topExpenseVarianceItems = topVarianceItems.filter((item) => item.kind !== 'revenue')
       const evidenceLines: string[] = []
       for (const item of topExpenseVarianceItems.slice(0, 3)) {
-        const labelWords = item.label
-          .toLowerCase()
-          .split(/[^a-z0-9]+/)
-          .filter((w) => w.length >= 4 && !['total', 'other', 'operating', 'expense', 'expenses', 'unclassified'].includes(w))
-        const match = structuredNotes.find((n) => {
-          const hay = `${n.category} ${n.description}`.toLowerCase()
-          return labelWords.some((w) => hay.includes(w))
-        })
+        const matches = mappedHighConfidenceNotes.filter((n) => n.mapping?.targetLabel?.toLowerCase() === item.label.toLowerCase())
+        const match = matches[0]
         if (!match) continue
+        const combinedSpend = matches.reduce((sum, n) => sum + (typeof n.amount === 'number' ? n.amount : 0), 0)
         evidenceLines.push(
-          `${item.label} variance ${formatSignedCurrency(item.viewDelta)} likely relates to ${match.code ? `${match.code}. ` : ''}${match.category}${match.amount ? ` (${formatCurrencyFull(match.amount)})` : ''}${match.vendor ? ` from ${match.vendor}` : ''}.`
+          `${item.label} variance ${formatSignedCurrency(item.viewDelta)} is supported by ${matches.length} high-confidence note entr${matches.length === 1 ? 'y' : 'ies'} totaling ${formatCurrencyFull(combinedSpend)}. Example: ${match.code ? `${match.code}. ` : ''}${match.category}${match.vendor ? ` (${match.vendor})` : ''}.`
         )
       }
 
       if (evidenceLines.length) {
         responses.push(makeLines(`Variance explanation using notes (${selectedMonthLabel}):`, evidenceLines))
+        if (mappedLowConfidenceNotes.length) {
+          responses.push(
+            makeLines(
+              'Potential related notes (low confidence):',
+              mappedLowConfidenceNotes.slice(0, 3).map((n) =>
+                `${n.code ? `${n.code}. ` : ''}${n.category}: ${n.mapping?.targetLabel || 'unmapped'} (${Math.round((n.mapping?.confidence || 0) * 100)}%)`
+              )
+            )
+          )
+        }
       } else if (topVarianceItems.length) {
         responses.push(
           makeLines(
@@ -1940,6 +2083,58 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {cashMovementAnalysis && typeof cashMovementAnalysis.totalDelta === 'number' && (
+            <div className="card" style={{ marginBottom: 20 }}>
+              <div className="card-header">
+                <div className="card-title"><i className="fas fa-arrow-right-arrow-left"></i> Cash Movement vs Prior Month</div>
+                <div className="card-tag">Why total cash moved</div>
+              </div>
+              <div className="card-body">
+                <div style={{ marginBottom: 12, color: 'var(--text-main)', lineHeight: 1.5 }}>
+                  {(() => {
+                    const d = cashMovementAnalysis.totalDelta
+                    const direction = d < 0 ? 'decreased' : d > 0 ? 'increased' : 'was flat'
+                    const topDown = cashMovementAnalysis.decreases[0]
+                    const topUp = cashMovementAnalysis.increases[0]
+                    const parts = [`Total cash ${direction} ${formatSignedCurrency(d)} vs prior month.`]
+                    if (topDown && typeof topDown.delta === 'number') {
+                      parts.push(`Largest decrease: ${topDown.label} ${formatSignedCurrency(topDown.delta)}.`)
+                    }
+                    if (topUp && typeof topUp.delta === 'number') {
+                      parts.push(`Largest offset: ${topUp.label} ${formatSignedCurrency(topUp.delta)}.`)
+                    }
+                    return parts.join(' ')
+                  })()}
+                </div>
+
+                <div className="layout-2col" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {cashMovementAnalysis.rows.map((row) => (
+                    <div key={row.key} className="stat-row" style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px' }}>
+                      <span className="stat-label">
+                        {row.label}
+                        <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 2 }}>
+                          {formatCurrencyFull(row.previous)} {'->'} {formatCurrencyFull(row.current)}
+                        </div>
+                      </span>
+                      <span className={`stat-value ${(row.delta ?? 0) < 0 ? 'negative' : (row.delta ?? 0) > 0 ? 'positive' : ''}`}>
+                        {formatSignedCurrency(row.delta)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {(typeof cashMovementAnalysis.netIncomeDelta === 'number' || typeof cashMovementAnalysis.receivablesDelta === 'number') && (
+                  <div style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.5 }}>
+                    Accrual vs cash timing check:
+                    {typeof cashMovementAnalysis.netIncomeDelta === 'number' ? ` Net income changed ${formatSignedCurrency(cashMovementAnalysis.netIncomeDelta)}.` : ''}
+                    {typeof cashMovementAnalysis.receivablesDelta === 'number' ? ` A/R changed ${formatSignedCurrency(cashMovementAnalysis.receivablesDelta)}.` : ''}
+                    {' '}Cash can move differently than net income due to reserve/escrow transfers and working-capital timing.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Expense breakdown */}
           {expenseChartItems.length > 0 && expenseTotalForPercent !== 0 && (
             <div className="card expense-breakdown-card" style={{ marginBottom: 20 }}>
@@ -1960,7 +2155,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="expense-insight">
                     <div className="expense-insight-label">Largest driver</div>
-                    <div className="expense-insight-value">{topExpenseDriver?.label ?? '—'}</div>
+                    <div className="expense-insight-value" title={topExpenseDriver ? normalizeLineItemLabel(topExpenseDriver.label) : undefined}>
+                      {topExpenseDriver ? formatLineItemLabel(topExpenseDriver.label, { maxLength: 42 }) : '—'}
+                    </div>
                     <div className="expense-insight-sub">
                       {topExpenseDriver
                         ? `${formatCurrencyFull(topExpenseDriver.viewActual)} • ${topExpenseDriver.percent ? `${topExpenseDriver.percent.toFixed(1)}%` : '—'}`
@@ -1969,7 +2166,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="expense-insight">
                     <div className="expense-insight-label">Largest variance</div>
-                    <div className="expense-insight-value">{largestExpenseVariance?.label ?? '—'}</div>
+                    <div className="expense-insight-value" title={largestExpenseVariance ? normalizeLineItemLabel(largestExpenseVariance.label) : undefined}>
+                      {largestExpenseVariance ? formatLineItemLabel(largestExpenseVariance.label, { maxLength: 42 }) : '—'}
+                    </div>
                     <div className="expense-insight-sub">
                       {largestExpenseVariance
                         ? `${formatSignedCurrency(largestExpenseVariance.viewDelta)} vs budget`
@@ -1978,7 +2177,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="expense-insight">
                     <div className="expense-insight-label">{momHighlightLabel}</div>
-                    <div className="expense-insight-value">{momHighlight?.label ?? '—'}</div>
+                    <div className="expense-insight-value" title={momHighlight ? normalizeLineItemLabel(momHighlight.label) : undefined}>
+                      {momHighlight ? formatLineItemLabel(momHighlight.label, { maxLength: 42 }) : '—'}
+                    </div>
                     <div className="expense-insight-sub">
                       {momHighlight
                         ? `${formatSignedCurrency(momHighlight.momDelta)} • ${momHighlight.mom === null ? '—' : formatSignedPercent(momHighlight.mom)}`
@@ -1991,7 +2192,7 @@ export default function DashboardPage() {
                   <div className="expense-pie-chart">
                     <Pie
                       data={{
-                        labels: expenseChartItems.map((item) => item.label),
+                        labels: expenseChartItems.map((item) => formatLineItemLabel(item.label, { maxLength: 48 })),
                         datasets: [
                           {
                             data: expenseChartItems.map((item) => item.viewActual),
@@ -2024,7 +2225,7 @@ export default function DashboardPage() {
                                     ? `MoM: ${formatSignedPercent(item.mom)}`
                                     : 'MoM: —'
                                 return [
-                                  `${item.label}: ${formatCurrencyFull(item.viewActual)}`,
+                                  `${normalizeLineItemLabel(item.label)}: ${formatCurrencyFull(item.viewActual)}`,
                                   percentText,
                                   budgetText,
                                   varianceText,
@@ -2041,8 +2242,8 @@ export default function DashboardPage() {
                     {expenseChartItems.map((item, idx) => (
                       <div key={`${item.label}-${idx}`} className="expense-pie-legend-row">
                         <span className="expense-pie-dot" style={{ background: expensePalette[idx % expensePalette.length] }}></span>
-                        <div>
-                          <div className="expense-pie-label">{item.label}</div>
+                        <div title={normalizeLineItemLabel(item.label)}>
+                          <div className="expense-pie-label">{formatLineItemLabel(item.label, { maxLength: 56 })}</div>
                           <div className="expense-pie-meta">
                             <span>{formatCurrencyFull(item.viewActual)}</span>
                             <span>•</span>
@@ -2061,9 +2262,12 @@ export default function DashboardPage() {
                     <div className="expense-breakdown-total">{formatCurrencyFull(expenseTotalForPercent)}</div>
                   </div>
                   <div className="expense-breakdown-note">
-                    Coverage: 100% of expense line items
+                    Coverage: {expenseLineItems.length ? `${Math.round((expenseBreakdownBase.length / expenseLineItems.length) * 100)}` : 0}% of expense line items
                     {topExpenseDriver && typeof topExpenseDriver.percent === 'number'
-                      ? ` • Top driver: ${topExpenseDriver.label} (${Math.abs(topExpenseDriver.percent).toFixed(1)}%)`
+                      ? ` • Top driver: ${normalizeLineItemLabel(topExpenseDriver.label)} (${Math.abs(topExpenseDriver.percent).toFixed(1)}%)`
+                      : ''}
+                    {suspiciousExpenseItems.length > 0
+                      ? ` • Filtered ${suspiciousExpenseItems.length} low-confidence row${suspiciousExpenseItems.length === 1 ? '' : 's'}`
                       : ''}
                     {excludedExpenseItems.length > 0
                       ? ` • Excluded ${excludedExpenseItems.length} credit/zero item${excludedExpenseItems.length === 1 ? '' : 's'} from the pie`
@@ -2101,41 +2305,109 @@ export default function DashboardPage() {
           </div>
           {/* Notes / Sources */}
           {monthData && (
-            <div className="layout-2col">
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title"><i className="fas fa-file-lines"></i> Notes</div>
-                  <div className="card-tag">From imports</div>
+            <>
+              <div className="layout-2col" style={{ marginBottom: 20 }}>
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title"><i className="fas fa-file-circle-check"></i> Notes Intelligence</div>
+                    <div className="card-tag">Variance-First</div>
+                  </div>
+                  <div className="card-body">
+                    <div className="stat-row"><span className="stat-label">Structured note entries</span><span className="stat-value">{structuredNotes.length}</span></div>
+                    <div className="stat-row"><span className="stat-label">Total noted spend</span><span className="stat-value">{formatCurrencyFull(totalNotedSpend)}</span></div>
+                    <div className="stat-row"><span className="stat-label">Mapped (high confidence)</span><span className="stat-value">{mappedHighConfidenceNotes.length}</span></div>
+                    <div className="stat-row"><span className="stat-label">Potential related (low confidence)</span><span className="stat-value">{mappedLowConfidenceNotes.length}</span></div>
+                    <div className="stat-row"><span className="stat-label">Unmapped notes</span><span className="stat-value">{unmappedNotes.length}</span></div>
+                    {topVendorsBySpend.length ? (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Top vendors by noted spend</div>
+                        {topVendorsBySpend.map((v) => (
+                          <div className="stat-row" key={v.vendor}>
+                            <span className="stat-label">{v.vendor}</span>
+                            <span className="stat-value">{formatCurrencyFull(v.total)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="card-body">
-                  <ul className="notes">
-                    {(monthData.notes || []).map((note, i) => (
-                      <li key={i}>{note}</li>
-                    ))}
-                  </ul>
+
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title"><i className="fas fa-scale-balanced"></i> Variance Explanations</div>
+                    <div className="card-tag">Top 3</div>
+                  </div>
+                  <div className="card-body">
+                    {varianceLineItemEvidence.length ? (
+                      varianceLineItemEvidence.map((v) => (
+                        <div className="stat-row" key={v.label}>
+                          <span className="stat-label">
+                            {v.label}
+                            <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 8 }}>
+                              {v.linkedCount} linked note{v.linkedCount === 1 ? '' : 's'}
+                            </span>
+                          </span>
+                          <span className="stat-value">{formatSignedCurrency(v.variance)}</span>
+                          {v.linkedCount > 0 ? (
+                            <span
+                              className="status-pill success"
+                              style={{ marginLeft: 8, fontSize: 10 }}
+                              title={`Linked note spend ${formatCurrencyFull(v.linkedSpend)}`}
+                            >
+                              {Math.round(v.maxConfidence * 100)}%
+                            </span>
+                          ) : (
+                            <span className="status-pill" style={{ marginLeft: 8, fontSize: 10 }}>
+                              no link
+                            </span>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                        No variance line items available for this month.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title"><i className="fas fa-paperclip"></i> Source FS PDF</div>
-                  <div className="card-tag">
-                    {(() => {
-                      const count = monthData.sources.length
-                      return `${count} file${count === 1 ? '' : 's'}`
-                    })()}
+              <div className="layout-2col">
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title"><i className="fas fa-file-lines"></i> Notes</div>
+                    <div className="card-tag">From imports</div>
+                  </div>
+                  <div className="card-body">
+                    <ul className="notes">
+                      {notesDisplayLines.map((note, i) => (
+                        <li key={i}>{note}</li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
-                <div className="card-body">
-                  {(monthData.sources || []).map((s, idx) => (
-                    <div className="stat-row" key={idx}>
-                      <span className="stat-label">{s.fileName}</span>
-                      <span className="stat-value" style={{ color: 'var(--text-muted)', fontSize: 12 }}>{s.kind}</span>
+
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title"><i className="fas fa-paperclip"></i> Source FS PDF</div>
+                    <div className="card-tag">
+                      {(() => {
+                        const count = monthData.sources.length
+                        return `${count} file${count === 1 ? '' : 's'}`
+                      })()}
                     </div>
-                  ))}
+                  </div>
+                  <div className="card-body">
+                    {(monthData.sources || []).map((s, idx) => (
+                      <div className="stat-row" key={idx}>
+                        <span className="stat-label">{s.fileName}</span>
+                        <span className="stat-value" style={{ color: 'var(--text-muted)', fontSize: 12 }}>{s.kind}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            </>
           )}
         </>
       )}
@@ -2733,12 +3005,13 @@ export default function DashboardPage() {
                       )}
                       <div className="card" style={{ margin: 0 }}>
                         <div className="card-header"><div className="card-title">Month</div></div>
-                        <div className="card-body">
-                          <div className="stat-row"><span className="stat-label">Requested</span><span className="stat-value">{importResult.requestedMonthKey || selectedMonth}</span></div>
-                          <div className="stat-row"><span className="stat-label">Detected</span><span className="stat-value">{importResult.detectedMonthKey || '—'}</span></div>
-                          <div className="stat-row"><span className="stat-label">Imported to</span><span className="stat-value">{importResult.monthKey}</span></div>
+                          <div className="card-body">
+                            <div className="stat-row"><span className="stat-label">Requested</span><span className="stat-value">{importResult.requestedMonthKey || selectedMonth}</span></div>
+                            <div className="stat-row"><span className="stat-label">Detected</span><span className="stat-value">{importResult.detectedMonthKey || '—'}</span></div>
+                            <div className="stat-row"><span className="stat-label">Imported to</span><span className="stat-value">{importResult.monthKey}</span></div>
+                            <div className="stat-row"><span className="stat-label">Structured notes</span><span className="stat-value">{importResult.extracted.notesStructuredCount ?? 0}</span></div>
+                          </div>
                         </div>
-                      </div>
                     </div>
                     <div style={{ marginTop: 10, color: 'var(--text-muted)', fontSize: 12 }}>
                       The dashboard updates immediately after import. We only display values extracted from the uploaded FS PDF.

@@ -1,4 +1,5 @@
-import type { MonthlyData } from '@/lib/data'
+import type { MonthlyData, NoteEntry } from '@/lib/data'
+import { buildLineItemDictionary, mapNotesToLineItems } from '@/lib/noteMapping'
 
 export type ImportedPdfKind = 'financial-statements' | 'bank-reconciliation' | 'cash-summary' | 'unknown'
 
@@ -48,6 +49,7 @@ export type PdfImportExtracted = {
     depositsInTransit?: number
     outstandingChecks?: number
   }
+  notesStructuredCount?: number
 }
 
 export type PdfImportResult = {
@@ -314,20 +316,15 @@ type BudgetLineItem = {
 
 function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | null): BudgetLineItemKind {
   const l = label.toLowerCase()
-  
-  // If we have a section context from the PDF headings, trust it first.
-  // This ensures items under "OTHER TENANT/MISC INCOME" stay as revenue
-  // even if they have ambiguous keywords like "fees" or "repairs".
-  if (section) {
-    return section
-  }
-  
+
   // Without section context, use keyword hints to classify
   // Explicit maintenance is revenue (common in co-op/condo)
   if (l.includes('maintenance')) return 'revenue'
+  if (l.includes('sublet fee')) return 'revenue'
   // Explicit interest lines
   if (l.includes('interest income')) return 'revenue'
   if (l.includes('interest expense')) return 'expense'
+  if (l.includes('capital expendit')) return 'expense'
 
   const revenueHints = [
     'revenue',
@@ -339,7 +336,8 @@ function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | nu
     'parking',
     'application',
     'amenity',
-    'interest',
+    'assessment',
+    'sublet fee',
   ]
   const expenseHints = [
     'expense',
@@ -366,6 +364,7 @@ function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | nu
     'trash',
     'security',
     'management',
+    'mortgage',
     'license',
     'licenses',
     'permit',
@@ -374,12 +373,19 @@ function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | nu
     'subscriptions',
     'architect',
     'engineer',
-    'sublet',
     'income tax',
+    'capital expendit',
   ]
 
   const isRevenue = revenueHints.some((h) => l.includes(h))
   const isExpense = expenseHints.some((h) => l.includes(h))
+
+  // If section context conflicts with strong keyword evidence, prefer the keyword.
+  if (section) {
+    if (isRevenue && !isExpense) return 'revenue'
+    if (isExpense && !isRevenue) return 'expense'
+    return section
+  }
 
   // Fee lines can be revenue (late fees, application fees) OR expenses (legal fees, licensing fees, bank fees).
   if (l.includes('fee') || l.includes('fees')) {
@@ -397,21 +403,93 @@ function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | nu
 }
 
 function extractBudgetLineItemsFromText(text: string) {
-  const lines = (text || '').split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  const allLines = (text || '').split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  // The FS packet often includes a second annualized matrix and detailed ledger sections after NOTES.
+  // Those rows pollute MTD/YTD line-item extraction (e.g., annual totals being mistaken for monthly values).
+  const notesIdx = allLines.findIndex((line) => /^NOTES\b/i.test(line))
+  const lines = notesIdx >= 0 ? allLines.slice(0, notesIdx) : allLines
   const out: BudgetLineItem[] = []
   let section: BudgetLineItemKind | null = null
   let lastLabelCandidate: string | null = null
+  let sawExplicitSectionHeading = false
 
   const isNoiseLabel = (label: string) => {
     const u = label.toUpperCase()
     if (!/[A-Z]/.test(u)) return true
+    if (/^SCHEDULE\b/.test(u)) return true
     // Avoid balance sheet / cash activity / GL account lines that pollute "top costs/revenue".
     if (/(CASH|BALANCE|BEGINNING|ENDING|CLOSING|OPENING)\b/.test(u)) return true
     if (/(BANK|RECONCILIATION|STATEMENT)\b/.test(u)) return true
     if (/(ASSETS?|LIABILITIES?|EQUITY)\b/.test(u)) return true
+    if (/(PAYABLES?|A\/P|ACCOUNTS?\s+PAYABLE)\b/.test(u)) return true
+    if (/^RESERVE\s+ACCOUNTS?\b/.test(u)) return true
+    if (/\/\s*$/.test(u)) return true
+    if (/\/\d{3,}\b/.test(u)) return true
     if (/(DEPOSITS?\s+IN\s+TRANSIT|OUTSTANDING\s+CHECKS?)\b/.test(u)) return true
     if (/(ACCOUNTS?\s+RECEIVABLE|A\/R)\b/.test(u)) return true
     return false
+  }
+
+  const looksLikeStandalonePnlLabel = (label: string) => {
+    const l = label.toLowerCase()
+    return [
+      'maintenance',
+      'income',
+      'rent',
+      'laundry',
+      'chargeback',
+      'key ',
+      'key income',
+      'payroll',
+      'bonus',
+      'tax',
+      'insurance',
+      'dues',
+      'utilities',
+      'utility',
+      'electric',
+      'gas',
+      'oil',
+      'water',
+      'sewer',
+      'cable',
+      'telephone',
+      'repairs',
+      'repair',
+      'supplies',
+      'security',
+      'management',
+      'legal',
+      'audit',
+      'architect',
+      'engineer',
+      'consultant',
+      'office',
+      'administrative',
+      'professional',
+      'contract',
+      'mortgage',
+      'interest',
+      'assessment',
+      'reserve',
+      'capital expendit',
+      'fee',
+      'fees',
+      'permit',
+      'subscription',
+      'violations',
+      'uniforms',
+      'pension',
+      'allowance',
+      'intercom',
+      'elevator',
+      'landscape',
+      'exterminating',
+      'fire protection',
+      'floor',
+      'paint',
+      'plaster',
+    ].some((needle) => l.includes(needle))
   }
 
   const cleanLabel = (raw: string) => {
@@ -419,6 +497,22 @@ function extractBudgetLineItemsFromText(text: string) {
     s = s.replace(/^[\-\u2013\u2014:\s]+/, '').replace(/[\-\u2013\u2014:\s]+$/, '')
     // Drop leading GL account codes like "1031-0000".
     s = s.replace(/^\d{3,}(?:-\d{2,})+\s+/, '')
+    // If the parser matched a later (often YTD) triple on a wide row, the captured label
+    // can include a tail of monthly numbers. Strip a numeric tail to recover the true label.
+    const tokens = s.split(' ').filter(Boolean)
+    let end = tokens.length
+    let stripped = 0
+    while (end > 0) {
+      const tok = tokens[end - 1]
+      const isDash = tok === '-' || tok === '—' || tok === '–'
+      const isMoneyLike = /[0-9]/.test(tok) && /^[()$,\d.\-]+$/.test(tok)
+      if (!isDash && !isMoneyLike) break
+      stripped += 1
+      end -= 1
+    }
+    if (stripped >= 2) {
+      s = tokens.slice(0, end).join(' ')
+    }
     return s.trim()
   }
 
@@ -432,12 +526,14 @@ function extractBudgetLineItemsFromText(text: string) {
       // Revenue section markers - includes "REVENUES", "OTHER TENANT/MISC INCOME", etc.
       if (/^(INCOME|REVENUES?|OPERATING INCOME|OTHER INCOME|OTHER TENANT|RESIDENTIAL CHARGES|TENANT.*INCOME|MISC.*INCOME)\b/.test(upper)) {
         section = 'revenue'
+        sawExplicitSectionHeading = true
         lastLabelCandidate = null
         continue
       }
       // Expense section markers
       if (/^(EXPENSES?|OPERATING EXPENSES?|OTHER EXPENSES?|OTHER OPERATING EXPENSES?|PAYROLL|UTILITIES|REPAIRS|REPAIRS\s*&\s*MAINTENANCE|ADMINISTRATIVE|ADMINISTRATIVE\s*&\s*GENERAL|PROFESSIONAL|PROFESSIONAL\s+FEES|SERVICE\s+CONTRACTS|PARKING\s*\/\s*AMENITIES|PROPERTY\s+AND\s+OTHER\s+TAXES|DEBT\s+SERVICE)\b/.test(upper)) {
         section = 'expense'
+        sawExplicitSectionHeading = true
         lastLabelCandidate = null
         continue
       }
@@ -506,7 +602,9 @@ function extractBudgetLineItemsFromText(text: string) {
     if (!/[A-Za-z]/.test(label)) continue
     if (/^(TOTAL|SUBTOTAL|GRAND TOTAL)\b/i.test(label)) continue
     if (/NET OPERATING INCOME/i.test(label)) continue
+    if (/^NET INCOME\b/i.test(label)) continue
     if (isNoiseLabel(label)) continue
+    if (!sawExplicitSectionHeading && !section && !looksLikeStandalonePnlLabel(label)) continue
 
     out.push({
       label,
@@ -761,25 +859,46 @@ function extractBankReconciliation(normalized: string) {
   return Object.keys(out).length ? out : null
 }
 
-function extractNotesFromFS(text: string): string[] | null {
+type NotesBlock = {
+  code?: string
+  category: string
+  body: string
+  rawText: string
+}
+
+function stableHash(input: string): string {
+  let h = 2166136261
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0).toString(16)
+}
+
+function extractNotesBlocksFromFS(text: string): NotesBlock[] {
   const lines = (text || '')
     .split(/\r?\n/)
     .map((l) => l.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
+  if (!lines.length) return []
 
   const start = lines.findIndex((line) => /^NOTES\b/i.test(line))
-  if (start === -1) return null
+  if (start === -1) return []
 
-  const out: string[] = []
-  let currentLetter: string | null = null
-  let currentTitle = ''
+  const out: NotesBlock[] = []
+  let currentCode: string | undefined
+  let currentCategory = ''
   let currentBodyParts: string[] = []
 
   const flushCurrent = () => {
-    if (!currentLetter || !currentTitle) return
     const body = currentBodyParts.join(' ').replace(/\s+/g, ' ').trim()
-    if (!body) return
-    out.push(`${currentLetter}. ${currentTitle}: ${body}`)
+    if (!currentCategory || !body) return
+    out.push({
+      code: currentCode,
+      category: currentCategory,
+      body,
+      rawText: `${currentCode ? `${currentCode}. ` : ''}${currentCategory}: ${body}`,
+    })
   }
 
   for (let i = start + 1; i < lines.length; i++) {
@@ -789,19 +908,108 @@ function extractNotesFromFS(text: string): string[] | null {
     const headerMatch = line.match(/^([A-Z])\s+([A-Z][A-Z0-9/&,\- ]{2,})$/)
     if (headerMatch) {
       flushCurrent()
-      currentLetter = headerMatch[1]
-      currentTitle = headerMatch[2].trim()
+      currentCode = headerMatch[1]
+      currentCategory = headerMatch[2].trim()
       currentBodyParts = []
       continue
     }
 
-    if (currentLetter) {
+    if (currentCategory) {
       currentBodyParts.push(line)
     }
   }
 
   flushCurrent()
-  return out.length ? out.slice(0, 30) : null
+  return out.slice(0, 40)
+}
+
+function splitPaymentClauses(entryBody: string): string[] {
+  const clauses = entryBody.match(/PAYMENT TO\s+.+?(?=(?:PAYMENT TO\s+)|$)/gi)
+  if (!clauses?.length) return [entryBody]
+  return clauses.map((c) => c.replace(/\s+/g, ' ').trim()).filter(Boolean)
+}
+
+function parseClauseToNoteEntry(monthKey: string, clause: string, context: { code?: string; category: string; rawText: string }): NoteEntry {
+  const vendor = clause.match(/PAYMENT TO\s+(.+?)\s+IN\s+\d{1,2}\/\d{4}\s+OF\b/i)?.[1]?.trim()
+  const serviceMonth = clause.match(/\bIN\s+(\d{1,2}\/\d{4})\b/i)?.[1]
+  const amountMatch = clause.match(/\bOF\s+\$?\s*([0-9][0-9,]*(?:\.\d+)?)\b/i)?.[1]
+  const amount = typeof amountMatch === 'string' ? parseMoneyStrict(amountMatch.replace(/,/g, '')) : undefined
+  const description = (clause.match(/\bFOR\s+(.+)$/i)?.[1] || clause).trim()
+
+  const signalCount =
+    (context.code ? 1 : 0) +
+    (context.category ? 1 : 0) +
+    (vendor ? 1 : 0) +
+    (typeof amount === 'number' ? 1 : 0) +
+    (serviceMonth ? 1 : 0) +
+    (description ? 1 : 0)
+  const parseConfidence = Math.max(0, Math.min(1, signalCount / 6))
+
+  const hashInput = `${monthKey}|${context.code || ''}|${context.category}|${vendor || ''}|${serviceMonth || ''}|${typeof amount === 'number' ? amount : ''}|${description}`
+  const entryId = `note_${stableHash(hashInput)}`
+
+  return {
+    entryId,
+    code: context.code,
+    category: context.category,
+    vendor,
+    amount: typeof amount === 'number' ? amount : undefined,
+    serviceMonth,
+    description,
+    rawText: context.rawText,
+    parseConfidence,
+  }
+}
+
+function normalizeAndDedupeNotes(entries: NoteEntry[]): NoteEntry[] {
+  const seen = new Set<string>()
+  const out: NoteEntry[] = []
+  for (const e of entries) {
+    const key = `${e.code || ''}|${e.category.toLowerCase()}|${(e.vendor || '').toLowerCase()}|${e.serviceMonth || ''}|${typeof e.amount === 'number' ? e.amount : ''}|${e.description.toLowerCase()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(e)
+  }
+  return out
+}
+
+function extractStructuredNotesFromFSText(monthKey: string, text: string): { rawNotes: string[]; structured: NoteEntry[]; hadNotesHeader: boolean } {
+  const blocks = extractNotesBlocksFromFS(text)
+  const hadNotesHeader = /(^|\n)\s*NOTES\b/im.test(text)
+  if (!blocks.length) return { rawNotes: [], structured: [], hadNotesHeader }
+
+  const rawNotes = blocks.map((b) => `${b.code ? `${b.code}. ` : ''}${b.category}: ${b.body}`)
+  const entries: NoteEntry[] = []
+  for (const block of blocks) {
+    const clauses = splitPaymentClauses(block.body)
+    for (const clause of clauses) {
+      entries.push(parseClauseToNoteEntry(monthKey, clause, { code: block.code, category: block.category, rawText: block.rawText }))
+    }
+  }
+
+  return {
+    rawNotes,
+    structured: normalizeAndDedupeNotes(entries),
+    hadNotesHeader,
+  }
+}
+
+export function parseStructuredNotesFromRaw(monthKey: string, notesRaw: string[] | undefined): NoteEntry[] {
+  if (!notesRaw?.length) return []
+  const entries: NoteEntry[] = []
+  for (const raw of notesRaw) {
+    const note = (raw || '').trim()
+    if (!note || /^Imported from PDFs on\b/i.test(note)) continue
+    const m = note.match(/^([A-Z])\.\s+([^:]+):\s+(.+)$/)
+    const code = m?.[1]
+    const category = (m?.[2] || 'General').trim()
+    const body = (m?.[3] || note).trim()
+    const clauses = splitPaymentClauses(body)
+    for (const clause of clauses) {
+      entries.push(parseClauseToNoteEntry(monthKey, clause, { code, category, rawText: note }))
+    }
+  }
+  return normalizeAndDedupeNotes(entries)
 }
 
 export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextInput[]): PdfImportResult {
@@ -814,7 +1022,9 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
   let cash: PdfImportExtracted['cash']
   let receivables: PdfImportExtracted['receivables']
   let bankReconciliation: PdfImportExtracted['bankReconciliation']
-  let notes: string[] = []
+  let notesRaw: string[] = []
+  let notesStructured: NoteEntry[] = []
+  let sawNotesHeader = false
   let lineItems: NonNullable<NonNullable<PdfImportExtracted['incomeStatement']>['lineItems']> | undefined
 
   const isFsNamed = (fileName: string) => {
@@ -846,8 +1056,10 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
       cash = cash ?? extractCashTotals(normalized) ?? undefined
       receivables = receivables ?? extractReceivablesFromFS(normalized) ?? undefined
       lineItems = lineItems ?? extractBudgetLineItemsFromText(input.text) ?? undefined
-      const parsedNotes = extractNotesFromFS(input.text)
-      if (parsedNotes?.length) notes = [...notes, ...parsedNotes]
+      const parsedNotes = extractStructuredNotesFromFSText(monthKey, input.text)
+      if (parsedNotes.hadNotesHeader) sawNotesHeader = true
+      if (parsedNotes.rawNotes.length) notesRaw = [...notesRaw, ...parsedNotes.rawNotes]
+      if (parsedNotes.structured.length) notesStructured = [...notesStructured, ...parsedNotes.structured]
     }
 
     if (kind === 'cash-summary') {
@@ -893,9 +1105,11 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
       bankReconciliation = extractBankReconciliation(normalized) ?? undefined
     }
     if (!lineItems && /(BUDGET|VARIANCE)\b/i.test(normalized)) lineItems = extractBudgetLineItemsFromText(input.text) ?? undefined
-    if (!notes.length && /(^|\s)NOTES(\s|$)/i.test(input.text)) {
-      const parsedNotes = extractNotesFromFS(input.text)
-      if (parsedNotes?.length) notes = parsedNotes
+    if (!notesStructured.length && /(^|\s)NOTES(\s|$)/i.test(input.text)) {
+      const parsedNotes = extractStructuredNotesFromFSText(monthKey, input.text)
+      if (parsedNotes.hadNotesHeader) sawNotesHeader = true
+      if (parsedNotes.rawNotes.length) notesRaw = parsedNotes.rawNotes
+      if (parsedNotes.structured.length) notesStructured = parsedNotes.structured
     }
   }
 
@@ -940,6 +1154,7 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
   if (cash) extracted.cash = cash
   if (receivables) extracted.receivables = receivables
   if (bankReconciliation) extracted.bankReconciliation = bankReconciliation
+  if (notesStructured.length) extracted.notesStructuredCount = notesStructured.length
 
   if (!noi) warnings.push('Could not find NET OPERATING INCOME in the FS PDF.')
   const hasIncomeTotals =
@@ -949,6 +1164,9 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
     typeof incomeStatement?.totalOperatingExpenses?.actual === 'number'
   if (!hasIncomeTotals && !lineItems?.length) {
     warnings.push('Could not find income statement totals or line items in the FS PDF.')
+  }
+  if (sawNotesHeader && notesStructured.length < 2) {
+    warnings.push('Detected NOTES section, but structured note extraction was low confidence.')
   }
 
   const now = new Date().toISOString()
@@ -990,6 +1208,19 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
       ...(dedupedLineItems?.length ? { lineItems: dedupedLineItems } : {}),
     }
   }
+
+  const normalizedStructuredNotes = normalizeAndDedupeNotes(notesStructured)
+  const mappedStructuredNotes =
+    normalizedStructuredNotes.length && data.incomeStatement?.lineItems?.length
+      ? mapNotesToLineItems(normalizedStructuredNotes, buildLineItemDictionary(data))
+      : normalizedStructuredNotes.map((note) => ({
+          ...note,
+          mapping: {
+            targetKind: 'unmapped' as const,
+            reason: ['No line-item candidates available'],
+            confidence: 0,
+          },
+        }))
 
   if (cash) {
     const total = cash.total
@@ -1040,8 +1271,11 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
     }
   }
 
-  const dedupedNotes = Array.from(new Set(notes))
-  data.notes = [`Imported from PDFs on ${new Date().toLocaleString()}.`, ...dedupedNotes]
+  const dedupedRawNotes = Array.from(new Set(notesRaw))
+  const importedAtNote = `Imported from PDFs on ${new Date().toLocaleString()}.`
+  data.notesRaw = [importedAtNote, ...dedupedRawNotes]
+  data.notesStructured = mappedStructuredNotes
+  data.notes = data.notesRaw
 
   return { data, extracted, warnings }
 }

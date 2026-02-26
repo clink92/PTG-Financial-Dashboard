@@ -1,0 +1,175 @@
+- generic [ref=e1]:
+  - alert [ref=e4]
+  - generic [ref=e33]:
+    - banner [ref=e34]:
+      - generic [ref=e35]:
+        - heading "Park Terrace Gardens" [level=1] [ref=e36]
+        - paragraph [ref=e37]: Financial Dashboard • Real-time Analysis & AI Insights
+      - generic [ref=e38]:
+        - generic [ref=e39]:
+          - generic [ref=e40]: 
+          - text: Secure
+        - combobox [ref=e42] [cursor=pointer]:
+          - option "March 2026"
+          - option "February 2026"
+          - option "January 2026" [selected]
+          - option "December 2025"
+          - option "November 2025"
+          - option "October 2025"
+          - option "September 2025"
+          - option "August 2025"
+          - option "July 2025"
+          - option "June 2025"
+          - option "May 2025"
+          - option "April 2025"
+          - option "March 2025"
+          - option "February 2025"
+          - option "January 2025"
+          - option "December 2024"
+          - option "November 2024"
+          - option "October 2024"
+          - option "September 2024"
+          - option "August 2024"
+          - option "July 2024"
+          - option "June 2024"
+          - option "May 2024"
+          - option "April 2024"
+          - option "March 2024"
+          - option "February 2024"
+          - option "January 2024"
+          - option "December 2023"
+          - option "November 2023"
+          - option "October 2023"
+          - option "September 2023"
+          - option "August 2023"
+          - option "July 2023"
+          - option "June 2023"
+          - option "May 2023"
+          - option "April 2023"
+          - option "March 2023"
+          - option "February 2023"
+        - button " Upload FS PDF" [ref=e43] [cursor=pointer]:
+          - generic [ref=e44]: 
+          - text: Upload FS PDF
+        - button "AU Admin User " [ref=e46] [cursor=pointer]:
+          - generic [ref=e47]: AU
+          - generic [ref=e48]: Admin User
+          - generic [ref=e49]: 
+    - generic [ref=e50]:
+      - button " Overview" [ref=e51] [cursor=pointer]:
+        - generic [ref=e52]: 
+        - text: Overview
+      - button " AI Insights" [active] [ref=e53] [cursor=pointer]:
+        - generic [ref=e54]: 
+        - text: AI Insights
+      - button " Trends" [ref=e55] [cursor=pointer]:
+        - generic [ref=e56]: 
+        - text: Trends
+      - button " QA Report" [ref=e57] [cursor=pointer]:
+        - generic [ref=e58]: 
+        - text: QA Report
+    - generic [ref=e742]:
+      - generic [ref=e743]:
+        - generic [ref=e744]:
+          - generic [ref=e746]: 
+          - generic [ref=e747]:
+            - generic [ref=e748]: AI Financial Analysis
+            - generic [ref=e749]: Powered by machine learning • January 2026
+        - generic [ref=e750]:
+          - generic [ref=e751]:
+            - generic [ref=e752]: 
+            - text: Executive Summary
+          - paragraph [ref=e753]: January 2026 shows NOI above budget by $65,143. Total cash is $7,092,739.
+        - heading " Key Insights (6)" [level=4] [ref=e754]:
+          - generic [ref=e755]: 
+          - text: Key Insights (6)
+        - generic [ref=e756]:
+          - generic [ref=e757]:
+            - generic [ref=e758]:
+              - generic [ref=e759]: 
+              - text: Strong NOI Performance
+            - generic [ref=e760]: +$65,143
+          - generic [ref=e761]: Net Operating Income exceeded budget by $65,143.
+          - generic [ref=e762]:
+            - strong [ref=e763]: "Recommendation:"
+            - text: Consider allocating excess funds to reserve accounts or planned capital items.
+        - generic [ref=e764]:
+          - generic [ref=e765]:
+            - generic [ref=e766]:
+              - generic [ref=e767]: 
+              - text: Expense Ratio
+            - generic [ref=e768]: 95.0%
+          - generic [ref=e769]: Total expenses are 95.0% of total income.
+        - generic [ref=e770]:
+          - generic [ref=e771]:
+            - generic [ref=e772]:
+              - generic [ref=e773]: 
+              - text: Cash Position
+            - generic [ref=e774]: $7.09M
+          - generic [ref=e775]: Total cash and cash equivalents are $7,092,739.
+        - generic [ref=e776]:
+          - generic [ref=e777]:
+            - generic [ref=e778]:
+              - generic [ref=e779]: 
+              - text: Cash Composition
+            - generic [ref=e780]: 30%
+          - generic [ref=e781]: Operating cash represents 30% of total cash.
+        - generic [ref=e782]:
+          - generic [ref=e783]:
+            - generic [ref=e784]:
+              - generic [ref=e785]: 
+              - text: Accounts Receivable (A/R)
+            - generic [ref=e786]: $72,989
+          - generic [ref=e787]: Total A/R is $72,989 based on the aging summary in the financial statements PDF.
+          - generic [ref=e788]:
+            - strong [ref=e789]: "Recommendation:"
+            - text: Review accounts over 60/90 days and verify collections status.
+        - generic [ref=e790]:
+          - generic [ref=e791]:
+            - generic [ref=e792]:
+              - generic [ref=e793]: 
+              - text: Past-Due Concentration
+            - generic [ref=e794]: 57%
+          - generic [ref=e795]: $41,716 of A/R is over 60 days past due (57%).
+          - generic [ref=e796]:
+            - strong [ref=e797]: "Recommendation:"
+            - text: Prioritize follow-ups on the largest over-60 balances and confirm payment plans.
+      - generic [ref=e798]:
+        - generic [ref=e799]:
+          - generic [ref=e800]:
+            - generic [ref=e801]: AI Q&A Assistant
+            - generic [ref=e802]: Ask questions about the selected month and recent trends.
+          - button "Clear" [ref=e803] [cursor=pointer]
+        - generic [ref=e804]:
+          - generic [ref=e805]:
+            - generic [ref=e806]: 
+            - text: January 2026
+          - generic [ref=e807]:
+            - generic [ref=e808]: 
+            - text: PDF data loaded
+          - generic [ref=e809]:
+            - generic [ref=e810]: 
+            - text: 1 source file
+        - generic [ref=e813]: Ask me about NOI, cash, receivables, budget variances, or trends for the selected month.
+        - generic [ref=e814]:
+          - button "What is NOI vs budget for January 2026?" [ref=e815] [cursor=pointer]
+          - button "Show cash and reserve breakdown." [ref=e816] [cursor=pointer]
+          - button "How do receivables look this month?" [ref=e817] [cursor=pointer]
+          - button "Any risks or highlights in the expenses?" [ref=e818] [cursor=pointer]
+          - button "Show the NOI trend for the last 6 months." [ref=e819] [cursor=pointer]
+          - button "Show unusual one-time expenses from notes." [ref=e820] [cursor=pointer]
+          - button "Summarize notes by vendor." [ref=e821] [cursor=pointer]
+        - generic [ref=e822]:
+          - textbox "Ask a question about the financial data" [ref=e823]:
+            - /placeholder: Ask a question about NOI, cash, receivables, expenses, or trends...
+          - button " Send" [disabled] [ref=e824]:
+            - generic [ref=e825]: 
+            - text: Send
+    - contentinfo [ref=e664]:
+      - generic [ref=e665]:
+        - generic [ref=e666]: 
+        - text: "Data secured with 256-bit encryption • Last sync: 2/25/2026, 9:32:35 PM"
+      - generic [ref=e667]:
+        - generic [ref=e668] [cursor=pointer]: Security
+        - generic [ref=e669] [cursor=pointer]: Help
+        - generic [ref=e670] [cursor=pointer]: Support

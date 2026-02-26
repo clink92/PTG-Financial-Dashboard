@@ -1,5 +1,25 @@
 // Monthly data is sourced from uploaded PDFs (no seeded financial numbers).
 // Fields are optional because not every PDF set contains every metric.
+export type NoteMapping = {
+  targetKind: 'expense_line_item' | 'revenue_line_item' | 'unmapped'
+  targetLabel?: string
+  reason: string[]
+  confidence: number
+}
+
+export type NoteEntry = {
+  entryId: string
+  code?: string
+  category: string
+  vendor?: string
+  amount?: number
+  serviceMonth?: string
+  description: string
+  rawText: string
+  parseConfidence: number
+  mapping?: NoteMapping
+}
+
 export interface MonthlyData {
   monthKey: string
   label: string
@@ -68,6 +88,8 @@ export interface MonthlyData {
     outstandingChecks?: number
   }
 
+  notesRaw?: string[]
+  notesStructured?: NoteEntry[]
   notes?: string[]
 }
 

@@ -1,11 +1,13 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
+import type { Prisma } from '@prisma/client'
 import Redis from 'ioredis'
 import { z } from 'zod'
 
 import type { MonthlyData } from '@/lib/data'
 import { compareMonthKeysAsc } from '@/lib/data'
+import { getPrismaClient, hasPrismaDatabaseEnv } from '@/lib/prisma'
 
 const MonthKeySchema = z.string().min(3)
 
@@ -71,6 +73,10 @@ function hasVercelKVEnv() {
 	return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)
 }
 
+function hasPrismaEnv() {
+	return hasPrismaDatabaseEnv()
+}
+
 function isServerless() {
 	return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
 }
@@ -116,7 +122,29 @@ export async function getStoredMonthData(monthKey: string): Promise<MonthlyData 
 	const parsedKey = MonthKeySchema.safeParse(monthKey)
 	if (!parsedKey.success) return null
 
-	console.log('[monthStore] getStoredMonthData', { monthKey, hasRedis: hasRedisEnv(), hasKV: hasVercelKVEnv(), isServerless: isServerless() })
+	console.log('[monthStore] getStoredMonthData', {
+		monthKey,
+		hasPrisma: hasPrismaEnv(),
+		hasRedis: hasRedisEnv(),
+		hasKV: hasVercelKVEnv(),
+		isServerless: isServerless(),
+	})
+
+	// Prisma / Postgres (preferred)
+	if (hasPrismaEnv()) {
+		const prisma = getPrismaClient()
+		if (prisma) {
+			try {
+				const row = await prisma.monthData.findUnique({
+					where: { monthKey: parsedKey.data },
+					select: { data: true },
+				})
+					return row ? (row.data as unknown as MonthlyData) : null
+			} catch (err) {
+				console.warn('[monthStore] Prisma get failed, falling back:', err)
+			}
+		}
+	}
 
 	// Try Redis first (works on Vercel with Redis Cloud)
 	if (hasRedisEnv()) {
@@ -160,7 +188,30 @@ export async function setStoredMonthData(monthKey: string, data: MonthlyData): P
 	}
 
 	const lineItemCount = data.incomeStatement?.lineItems?.length ?? 0
-	console.log('[monthStore] setStoredMonthData', { monthKey, lineItemCount, hasRedis: hasRedisEnv(), hasKV: hasVercelKVEnv() })
+	console.log('[monthStore] setStoredMonthData', {
+		monthKey,
+		lineItemCount,
+		hasPrisma: hasPrismaEnv(),
+		hasRedis: hasRedisEnv(),
+		hasKV: hasVercelKVEnv(),
+	})
+
+	// Prisma / Postgres (preferred)
+	if (hasPrismaEnv()) {
+		const prisma = getPrismaClient()
+		if (prisma) {
+			try {
+				await prisma.monthData.upsert({
+					where: { monthKey: parsedKey.data },
+					create: { monthKey: parsedKey.data, data: data as unknown as Prisma.InputJsonValue },
+					update: { data: data as unknown as Prisma.InputJsonValue },
+				})
+				return
+			} catch (err) {
+				console.warn('[monthStore] Prisma set failed, falling back:', err)
+			}
+		}
+	}
 
 	// Try Redis first
 	if (hasRedisEnv()) {
@@ -202,6 +253,19 @@ export async function deleteStoredMonthData(monthKey: string): Promise<void> {
 		throw new Error('Invalid monthKey')
 	}
 
+	// Prisma / Postgres (preferred)
+	if (hasPrismaEnv()) {
+		const prisma = getPrismaClient()
+		if (prisma) {
+			try {
+				await prisma.monthData.deleteMany({ where: { monthKey: parsedKey.data } })
+				return
+			} catch (err) {
+				console.warn('[monthStore] Prisma del failed, falling back:', err)
+			}
+		}
+	}
+
 	// Try Redis first
 	if (hasRedisEnv()) {
 		const redis = await getRedisClient()
@@ -233,35 +297,53 @@ export async function deleteStoredMonthData(monthKey: string): Promise<void> {
 }
 
 export async function listStoredMonthKeys(): Promise<string[]> {
+	// Prisma / Postgres (preferred)
+	if (hasPrismaEnv()) {
+		const prisma = getPrismaClient()
+		if (prisma) {
+			try {
+				const rows = await prisma.monthData.findMany({
+					select: { monthKey: true },
+				})
+				return rows.map((r) => r.monthKey).sort(compareMonthKeysAsc)
+			} catch (err) {
+				console.warn('[monthStore] Prisma scan failed, falling back:', err)
+			}
+		}
+	}
+
 	// Redis
 	if (hasRedisEnv()) {
 		const redis = await getRedisClient()
-		if (!redis) return []
+		if (!redis) {
+			console.warn('[monthStore] Redis unavailable during scan, falling back to KV/local store')
+		} else {
 
-		try {
-			const keys: string[] = []
-			const seen = new Set<string>()
-			let cursor = '0'
-			const match = `${KV_PREFIX}*`
-			const maxKeys = 500
+			try {
+				const keys: string[] = []
+				const seen = new Set<string>()
+				let cursor = '0'
+				const match = `${KV_PREFIX}*`
+				const maxKeys = 500
 
-			do {
-				// eslint-disable-next-line no-await-in-loop
-				const res = await redis.scan(cursor, 'MATCH', match, 'COUNT', '100')
-				cursor = res[0]
-				for (const k of res[1]) {
-					if (!k.startsWith(KV_PREFIX)) continue
-					const monthKey = k.slice(KV_PREFIX.length)
-					if (!monthKey || seen.has(monthKey)) continue
-					seen.add(monthKey)
-					keys.push(monthKey)
-					if (keys.length >= maxKeys) break
-				}
-			} while (cursor !== '0' && keys.length < maxKeys)
+				do {
+					// eslint-disable-next-line no-await-in-loop
+					const res = await redis.scan(cursor, 'MATCH', match, 'COUNT', '100')
+					cursor = res[0]
+					for (const k of res[1]) {
+						if (!k.startsWith(KV_PREFIX)) continue
+						const monthKey = k.slice(KV_PREFIX.length)
+						if (!monthKey || seen.has(monthKey)) continue
+						seen.add(monthKey)
+						keys.push(monthKey)
+						if (keys.length >= maxKeys) break
+					}
+				} while (cursor !== '0' && keys.length < maxKeys)
 
-			return keys.sort(compareMonthKeysAsc)
-		} catch (err) {
-			console.warn('[monthStore] Redis scan failed, falling back:', err)
+				return keys.sort(compareMonthKeysAsc)
+			} catch (err) {
+				console.warn('[monthStore] Redis scan failed, falling back:', err)
+			}
 		}
 	}
 

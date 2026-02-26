@@ -1,0 +1,133 @@
+- generic [ref=e1]:
+  - alert [ref=e4]
+  - generic [ref=e33]:
+    - banner [ref=e34]:
+      - generic [ref=e35]:
+        - heading "Park Terrace Gardens" [level=1] [ref=e36]
+        - paragraph [ref=e37]: Financial Dashboard • Real-time Analysis & AI Insights
+      - generic [ref=e38]:
+        - generic [ref=e39]:
+          - generic [ref=e40]: 
+          - text: Secure
+        - combobox [ref=e42] [cursor=pointer]:
+          - option "March 2026"
+          - option "February 2026"
+          - option "January 2026" [selected]
+          - option "December 2025"
+          - option "November 2025"
+          - option "October 2025"
+          - option "September 2025"
+          - option "August 2025"
+          - option "July 2025"
+          - option "June 2025"
+          - option "May 2025"
+          - option "April 2025"
+          - option "March 2025"
+          - option "February 2025"
+          - option "January 2025"
+          - option "December 2024"
+          - option "November 2024"
+          - option "October 2024"
+          - option "September 2024"
+          - option "August 2024"
+          - option "July 2024"
+          - option "June 2024"
+          - option "May 2024"
+          - option "April 2024"
+          - option "March 2024"
+          - option "February 2024"
+          - option "January 2024"
+          - option "December 2023"
+          - option "November 2023"
+          - option "October 2023"
+          - option "September 2023"
+          - option "August 2023"
+          - option "July 2023"
+          - option "June 2023"
+          - option "May 2023"
+          - option "April 2023"
+          - option "March 2023"
+          - option "February 2023"
+        - button " Upload FS PDF" [ref=e43] [cursor=pointer]:
+          - generic [ref=e44]: 
+          - text: Upload FS PDF
+        - button "AU Admin User " [ref=e46] [cursor=pointer]:
+          - generic [ref=e47]: AU
+          - generic [ref=e48]: Admin User
+          - generic [ref=e49]: 
+    - generic [ref=e50]:
+      - button " Overview" [ref=e51] [cursor=pointer]:
+        - generic [ref=e52]: 
+        - text: Overview
+      - button " AI Insights" [ref=e53] [cursor=pointer]:
+        - generic [ref=e54]: 
+        - text: AI Insights
+      - button " Trends" [ref=e55] [cursor=pointer]:
+        - generic [ref=e56]: 
+        - text: Trends
+      - button " QA Report" [active] [ref=e57] [cursor=pointer]:
+        - generic [ref=e58]: 
+        - text: QA Report
+    - generic [ref=e897]:
+      - generic [ref=e898]:
+        - generic [ref=e899]:
+          - generic [ref=e900]:
+            - generic [ref=e901]: 
+            - text: Import FS PDF (stores data)
+          - generic [ref=e902]: January 2026
+        - generic [ref=e904]:
+          - button "Choose File" [ref=e905]
+          - button " Import FS PDF" [disabled] [ref=e906]:
+            - generic [ref=e907]: 
+            - text: Import FS PDF
+          - button "Clear" [ref=e908] [cursor=pointer]
+      - generic [ref=e909]:
+        - generic [ref=e910]:
+          - generic [ref=e911]:
+            - generic [ref=e912]: 
+            - text: Current Month Status
+          - generic [ref=e913]: Stored
+        - generic [ref=e914]:
+          - generic [ref=e915]:
+            - generic [ref=e916]: Month
+            - generic [ref=e917]: January 2026
+          - generic [ref=e918]:
+            - generic [ref=e919]: Last Updated
+            - generic [ref=e920]: 2/25/2026, 9:28:42 PM
+          - generic [ref=e921]:
+            - generic [ref=e922]: FS PDF Recorded
+            - generic [ref=e923]: "1"
+          - generic [ref=e924]:
+            - generic [ref=e925]: Required PDF
+            - generic [ref=e926]: FS uploaded
+          - generic [ref=e927]:
+            - generic [ref=e928]: Extraction completeness
+            - generic [ref=e929]:
+              - generic [ref=e930]: Income/expenses totals
+              - generic [ref=e931]: Found
+            - generic [ref=e932]:
+              - generic [ref=e933]: NOI
+              - generic [ref=e934]: Found
+            - generic [ref=e935]:
+              - generic [ref=e936]: Net income
+              - generic [ref=e937]: Found
+            - generic [ref=e938]:
+              - generic [ref=e939]: Line items
+              - generic [ref=e940]: Found
+      - generic [ref=e941]:
+        - generic [ref=e942]:
+          - generic [ref=e943]:
+            - generic [ref=e944]: 
+            - text: Recorded FS PDF
+          - generic [ref=e945]: Sources
+        - generic [ref=e947]:
+          - generic [ref=e948]: B#1890 JAN 2026 FS.pdf
+          - generic [ref=e949]: financial-statements
+    - contentinfo [ref=e664]:
+      - generic [ref=e665]:
+        - generic [ref=e666]: 
+        - text: "Data secured with 256-bit encryption • Last sync: 2/25/2026, 9:33:38 PM"
+      - generic [ref=e667]:
+        - generic [ref=e668] [cursor=pointer]: Security
+        - generic [ref=e669] [cursor=pointer]: Help
+        - generic [ref=e670] [cursor=pointer]: Support

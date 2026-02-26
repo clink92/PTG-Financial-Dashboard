@@ -20,6 +20,7 @@ async function main() {
     NET OPERATING INCOME 77,438 (26,983) 104,421
 
     REPAIRS AND MAINTENANCE 12,000 10,000 2,000
+    LEGAL FEES 44,016 10,000 34,016
     UTILITIES 8,500 9,000 (500)
 
     TOTAL OPERATING ACCOUNTS 1,234,567$
@@ -38,6 +39,11 @@ async function main() {
     PAYMENT TO AMERICAN FIRE RESTORATION IN 8/2025 OF $4,852 FOR RENDERING OF SERVICES.
     B FLOORING REPAIRS
     PAYMENT TO CMP CONTRACTING IN 07/2025 OF $849 FOR A-72 FLOOR REPAIRING.
+    C GLASS DOORS WINDOWS
+    PAYMENT TO MARION GLASS COMPANY IN 8/2025 OF $1,682.12 FOR FURNISHED & DELIVER 21" SPIRAL ALUMINUM SASH.
+    PAYMENT TO MARION GLASS COMPANY IN 8/2025 OF $816.56 FOR INSTALL A NEW INSULATED UNIT.
+    K LEGAL FEES
+    PAYMENT TO PHILLIPS NIZER LLP IN 10/2025 OF $44,016 FOR PROVIDING GAS DRYER LITIGATION SERVICES.
   `
 
   const bankReconciliationText = `
@@ -101,7 +107,16 @@ async function main() {
   assert(typeof result.data.bankReconciliation?.depositsInTransit === 'number', 'QA FAIL: Deposits in transit not extracted')
   assert(typeof result.data.bankReconciliation?.outstandingChecks === 'number', 'QA FAIL: Outstanding checks not extracted')
   assert(Boolean(result.data.incomeStatement?.lineItems?.length), 'QA FAIL: Budget line items not extracted')
-  assert(Boolean(result.data.notes?.some((n) => n.includes('A. FIRE PROTECTION'))), 'QA FAIL: FS notes not extracted')
+  assert(Boolean(result.data.notesRaw?.some((n) => n.includes('A. FIRE PROTECTION'))), 'QA FAIL: FS notes raw not extracted')
+  assert(Boolean(result.data.notesStructured?.length), 'QA FAIL: FS notes structured not extracted')
+  assert(
+    Boolean(result.data.notesStructured?.some((n) => n.mapping?.targetLabel === 'LEGAL FEES')),
+    'QA FAIL: FS notes were not mapped to any line item'
+  )
+  assert(
+    Boolean(result.data.notesStructured?.some((n) => n.amount === 1682.12 || n.amount === 816.56)),
+    'QA FAIL: Decimal note amounts not parsed'
+  )
 
   // Persist + reload
   await setStoredMonthData(monthKey, result.data)

@@ -1,0 +1,36 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e6]: 
+      - heading "Park Terrace Gardens" [level=1] [ref=e7]
+      - paragraph [ref=e8]: Financial Dashboard Login
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]: Email Address
+        - textbox "Email Address" [ref=e12]:
+          - /placeholder: Enter your email
+      - generic [ref=e13]:
+        - generic [ref=e14]: Password
+        - textbox "Password" [ref=e15]:
+          - /placeholder: Enter your password
+      - button " Sign In" [ref=e16] [cursor=pointer]:
+        - generic [ref=e17]: 
+        - text: Sign In
+    - generic [ref=e18]:
+      - paragraph [ref=e19]:
+        - strong [ref=e20]: Demo Accounts
+        - text: "- Click to auto-login:"
+      - generic [ref=e21]:
+        - button " Admin" [ref=e22] [cursor=pointer]:
+          - generic [ref=e23]: 
+          - text: Admin
+        - button " Manager" [ref=e24] [cursor=pointer]:
+          - generic [ref=e25]: 
+          - text: Manager
+        - button " Viewer" [ref=e26] [cursor=pointer]:
+          - generic [ref=e27]: 
+          - text: Viewer
+    - generic [ref=e28]:
+      - generic [ref=e29]: 
+      - text: Secured with enterprise-grade encryption
+  - alert [ref=e30]

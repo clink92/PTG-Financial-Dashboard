@@ -17,6 +17,7 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
   const recv = data.receivables
   const income = data.incomeStatement
   const bank = data.bankReconciliation
+  const notesStructured = data.notesStructured ?? []
 
   // NOI Analysis (only if we have a budget comparison)
   if (typeof noi?.variance === 'number' && typeof noi?.budget === 'number') {
@@ -112,6 +113,19 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
       description: `Reconciling items net to $${bank.reconcilingItemsNet.toLocaleString()}.`,
       metric: `$${bank.reconcilingItemsNet.toLocaleString()}`,
       recommendation: magnitude > 50_000 ? 'Review outstanding checks and deposits in transit to ensure timely clearing.' : undefined,
+    })
+  }
+
+  if (notesStructured.length) {
+    const notedSpend = notesStructured.reduce((sum, n) => sum + (typeof n.amount === 'number' ? n.amount : 0), 0)
+    const unmapped = notesStructured.filter((n) => !n.mapping || n.mapping.targetKind === 'unmapped').length
+    insights.push({
+      id: 'notes-intelligence',
+      type: unmapped > 0 ? 'warning' : 'neutral',
+      title: 'Notes Intelligence Coverage',
+      description: `${notesStructured.length} structured note entries captured with $${notedSpend.toLocaleString()} total noted spend.`,
+      metric: `${notesStructured.length} notes`,
+      recommendation: unmapped > 0 ? `${unmapped} notes remain unmapped to line items; review categories to improve variance explanations.` : undefined,
     })
   }
 

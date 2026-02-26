@@ -1,0 +1,148 @@
+- generic [ref=e1]:
+  - alert [ref=e30]
+  - generic [ref=e31]:
+    - banner [ref=e33]:
+      - generic [ref=e34]:
+        - heading "Park Terrace Gardens" [level=1] [ref=e35]
+        - paragraph [ref=e36]: Financial Dashboard • Real-time Analysis & AI Insights
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]: 
+          - text: Secure
+        - combobox [ref=e41] [cursor=pointer]:
+          - option "March 2026"
+          - option "February 2026"
+          - option "January 2026" [selected]
+          - option "December 2025"
+          - option "November 2025"
+          - option "October 2025"
+          - option "September 2025"
+          - option "August 2025"
+          - option "July 2025"
+          - option "June 2025"
+          - option "May 2025"
+          - option "April 2025"
+          - option "March 2025"
+          - option "February 2025"
+          - option "January 2025"
+          - option "December 2024"
+          - option "November 2024"
+          - option "October 2024"
+          - option "September 2024"
+          - option "August 2024"
+          - option "July 2024"
+          - option "June 2024"
+          - option "May 2024"
+          - option "April 2024"
+          - option "March 2024"
+          - option "February 2024"
+          - option "January 2024"
+          - option "December 2023"
+          - option "November 2023"
+          - option "October 2023"
+          - option "September 2023"
+          - option "August 2023"
+          - option "July 2023"
+          - option "June 2023"
+          - option "May 2023"
+          - option "April 2023"
+          - option "March 2023"
+          - option "February 2023"
+        - button " Upload FS PDF" [ref=e42] [cursor=pointer]:
+          - generic [ref=e43]: 
+          - text: Upload FS PDF
+        - button "AU Admin User " [ref=e45] [cursor=pointer]:
+          - generic [ref=e46]: AU
+          - generic [ref=e47]: Admin User
+          - generic [ref=e48]: 
+    - generic [ref=e49]:
+      - button " Overview" [ref=e50] [cursor=pointer]:
+        - generic [ref=e51]: 
+        - text: Overview
+      - button " AI Insights" [ref=e52] [cursor=pointer]:
+        - generic [ref=e53]: 
+        - text: AI Insights
+      - button " Trends" [active] [ref=e54] [cursor=pointer]:
+        - generic [ref=e55]: 
+        - text: Trends
+      - button " QA Report" [ref=e56] [cursor=pointer]:
+        - generic [ref=e57]: 
+        - text: QA Report
+    - generic [ref=e704]:
+      - generic [ref=e705]:
+        - generic [ref=e707]:
+          - generic [ref=e708]: 
+          - text: 6-Month NOI Performance
+        - img [ref=e710]
+      - generic [ref=e711]:
+        - generic [ref=e712]:
+          - generic [ref=e713]:
+            - generic [ref=e714]:
+              - generic [ref=e715]: 
+              - text: Cash Trend
+            - generic [ref=e716]: Total Cash
+          - img [ref=e718]
+        - generic [ref=e719]:
+          - generic [ref=e720]:
+            - generic [ref=e721]:
+              - generic [ref=e722]: 
+              - text: Receivables Trend
+            - generic [ref=e723]: A/R Total
+          - img [ref=e725]
+      - generic [ref=e726]:
+        - generic [ref=e727]:
+          - generic [ref=e728]:
+            - generic [ref=e729]: November 2025
+            - generic [ref=e730]: $77K
+          - generic [ref=e731]:
+            - generic [ref=e732]: NOI
+            - generic [ref=e733]: $77K
+          - generic [ref=e734]:
+            - generic [ref=e735]: Net Income
+            - generic [ref=e736]: $104K
+          - generic [ref=e737]:
+            - generic [ref=e738]: Total Revenue
+            - generic [ref=e739]: $582K
+          - generic [ref=e740]:
+            - generic [ref=e741]: Total Expenses
+            - generic [ref=e742]: $505K
+        - generic [ref=e743]:
+          - generic [ref=e744]:
+            - generic [ref=e745]: December 2025
+            - generic [ref=e746]: $-4,793
+          - generic [ref=e747]:
+            - generic [ref=e748]: NOI
+            - generic [ref=e749]: $-4,793
+          - generic [ref=e750]:
+            - generic [ref=e751]: Net Income
+            - generic [ref=e752]: $-38,417
+          - generic [ref=e753]:
+            - generic [ref=e754]: Total Revenue
+            - generic [ref=e755]: $597K
+          - generic [ref=e756]:
+            - generic [ref=e757]: Total Expenses
+            - generic [ref=e758]: $602K
+        - generic [ref=e759]:
+          - generic [ref=e760]:
+            - generic [ref=e761]: January 2026
+            - generic [ref=e762]: $31K
+          - generic [ref=e763]:
+            - generic [ref=e764]: NOI
+            - generic [ref=e765]: $31K
+          - generic [ref=e766]:
+            - generic [ref=e767]: Net Income
+            - generic [ref=e768]: $50K
+          - generic [ref=e769]:
+            - generic [ref=e770]: Total Revenue
+            - generic [ref=e771]: $615K
+          - generic [ref=e772]:
+            - generic [ref=e773]: Total Expenses
+            - generic [ref=e774]: $584K
+    - contentinfo [ref=e613]:
+      - generic [ref=e614]:
+        - generic [ref=e615]: 
+        - text: "Data secured with 256-bit encryption • Last sync: 2/25/2026, 9:59:21 PM"
+      - generic [ref=e616]:
+        - generic [ref=e617] [cursor=pointer]: Security
+        - generic [ref=e618] [cursor=pointer]: Help
+        - generic [ref=e619] [cursor=pointer]: Support

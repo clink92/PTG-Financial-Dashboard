@@ -1,0 +1,112 @@
+- generic [active] [ref=e1]:
+  - link "Skip to submit entry" [ref=e2] [cursor=pointer]:
+    - /url: "#contribute"
+  - link "Skip to voting board" [ref=e3] [cursor=pointer]:
+    - /url: "#voting-board"
+  - banner [ref=e4]:
+    - navigation [ref=e6]:
+      - link "Open Park Terrace Gardens main website" [ref=e8] [cursor=pointer]:
+        - /url: https://park-terrace-gardens-site.vercel.app/
+        - img "Park Terrace Gardens logo" [ref=e10]
+        - generic [ref=e11]:
+          - paragraph [ref=e12]: PARK TERRACE
+          - paragraph [ref=e13]: GARDENS INC.
+  - main [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - paragraph [ref=e17]: Community Website Voting
+        - link "Visit Main PTG Website (opens in a new tab)" [ref=e18] [cursor=pointer]:
+          - /url: https://park-terrace-gardens-site.vercel.app/
+          - generic [ref=e19]:
+            - generic [ref=e20]: Visit Main PTG Website
+            - generic [ref=e21]: Open the PTG landing site
+          - generic [ref=e22]: ↗
+      - heading "Help choose the photos and updates for the PTG website landing page." [level=1] [ref=e23]
+      - paragraph [ref=e24]: This voting board supports the Park Terrace Gardens website, the digital landing page for people learning about PTG. Vote on seasonal homepage imagery, year-round garden photos, and website improvements so PTG is represented clearly and professionally.
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - strong [ref=e27]: Homepage Hero
+          - text: Seasonal lead image for the PTG landing page.
+        - generic [ref=e28]:
+          - strong [ref=e29]: Homepage Feature 1
+          - text: Seasonal supporting image for the homepage layout.
+        - generic [ref=e30]:
+          - strong [ref=e31]: Homepage Feature 2
+          - text: Seasonal supporting image that complements Hero + Feature 1.
+        - generic [ref=e32]:
+          - strong [ref=e33]: Gardens
+          - text: Year-round PTG garden photos from the central garden and areas around the building.
+        - generic [ref=e34]:
+          - strong [ref=e35]: General Feedback
+          - text: Bug reports and feature requests to improve the PTG website experience.
+    - generic [ref=e36]:
+      - article [ref=e37]:
+        - heading "Submit Entry" [level=3] [ref=e38]
+        - paragraph [ref=e39]: Share a photo or feedback idea. General Website Feedback supports text-only submissions with optional screenshots.
+        - paragraph [ref=e40]: Photo Submission
+        - generic [ref=e41]:
+          - paragraph [ref=e42]: What we're looking for
+          - paragraph [ref=e43]: Submit the best photo or feedback entry for this category.
+          - paragraph
+        - generic [ref=e44]:
+          - paragraph [ref=e45]: Use this form to submit photos for PTG homepage and gardens categories or website feedback requests.
+          - generic [ref=e46]:
+            - text: Your Name
+            - textbox "Your Name" [ref=e47]
+          - generic [ref=e48]:
+            - text: Category
+            - combobox "Category" [ref=e49]
+          - generic [ref=e50]:
+            - generic [ref=e51]: Attach High-Quality Photo
+            - button "Attach High-Quality Photo" [ref=e52]
+          - paragraph [ref=e53]: Attach a photo for best quality, or paste an image URL.
+          - paragraph [ref=e54]
+          - generic [ref=e55]:
+            - text: Image URL (optional)
+            - textbox "Image URL (optional)" [ref=e56]:
+              - /placeholder: https://...
+          - generic [ref=e57]:
+            - generic [ref=e58]: Caption (optional)
+            - textbox "Caption (optional)" [ref=e59]:
+              - /placeholder: Optional caption for this photo
+          - button "Post Photo" [ref=e60] [cursor=pointer]
+          - paragraph [ref=e61]
+      - article [ref=e62]:
+        - heading "Voting Identity" [level=3] [ref=e63]
+        - paragraph [ref=e64]: Enter your name once for voting and comments. One vote per person per photo.
+        - textbox "Your name for voting/commenting" [ref=e65]
+        - paragraph [ref=e66]:
+          - generic [ref=e67]: Honor system voting rule.
+          - text: Voting is on the honor system. You can upvote multiple photos, but only once per photo. This works only if everyone follows one vote per item.
+    - generic [ref=e68]:
+      - generic [ref=e69]:
+        - generic [ref=e70]:
+          - paragraph [ref=e71]: Live Voting Board
+          - heading "Review and rank submissions" [level=2] [ref=e72]
+          - paragraph [ref=e73]: Entries are ranked by votes within each category (and season for homepage slots) to guide decisions for the PTG website landing page. Add comments that help PTG choose what best represents the community.
+        - generic [ref=e74]:
+          - paragraph [ref=e75]: Live board
+          - paragraph [ref=e77]: Not updated yet
+      - generic "Voting rubric" [ref=e78]:
+        - paragraph [ref=e79]: Voting rubric
+        - generic [ref=e80]:
+          - generic [ref=e81]: Seasonal fit (homepage categories)
+          - generic [ref=e82]: Photo quality and composition
+          - generic [ref=e83]: Represents PTG and community well
+    - generic [ref=e84]:
+      - generic [ref=e85]:
+        - generic [ref=e86]:
+          - paragraph [ref=e87]: Browse by Category
+          - heading "Choose what you want to review" [level=2] [ref=e88]
+          - paragraph [ref=e89]: Use the filters below to review one PTG website photo slot at a time.
+        - paragraph [ref=e90]
+      - generic [ref=e91]:
+        - generic [ref=e92]:
+          - paragraph [ref=e93]: Category
+          - toolbar "Category filters" [ref=e94]
+        - generic [ref=e95]:
+          - paragraph [ref=e96]: Season
+          - toolbar "Season filters" [ref=e97]
+    - region "Voting results by category and season"
+    - group [ref=e98]:
+      - generic "Admin (demo / reset) +" [ref=e99] [cursor=pointer]

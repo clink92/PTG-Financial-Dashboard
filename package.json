@@ -11,10 +11,12 @@
     "start": "next start",
     "lint": "next lint",
     "qa:pdf": "tsx scripts/qa-pdf-import.ts",
+    "qa:notes": "tsx scripts/qa-note-mapping.ts",
     "qa:vercel-import": "tsx scripts/qa-vercel-import.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.84",
+    "@prisma/client": "^6.19.2",
     "@vercel/kv": "^3.0.0",
     "bcryptjs": "^2.4.3",
     "chart.js": "^4.4.1",
@@ -36,6 +38,7 @@
     "@types/react-dom": "^18",
     "eslint": "^8",
     "eslint-config-next": "^14",
+    "prisma": "^6.19.2",
     "tsx": "^4.20.5",
     "typescript": "^5"
   }

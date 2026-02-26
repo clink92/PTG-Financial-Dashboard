@@ -1,0 +1,695 @@
+- generic [ref=e1]:
+  - alert [ref=e4]
+  - generic [ref=e33]:
+    - banner [ref=e34]:
+      - generic [ref=e35]:
+        - heading "Park Terrace Gardens" [level=1] [ref=e36]
+        - paragraph [ref=e37]: Financial Dashboard • Real-time Analysis & AI Insights
+      - generic [ref=e38]:
+        - generic [ref=e39]:
+          - generic [ref=e40]: 
+          - text: Secure
+        - combobox [ref=e42] [cursor=pointer]:
+          - option "March 2026"
+          - option "February 2026"
+          - option "January 2026" [selected]
+          - option "December 2025"
+          - option "November 2025"
+          - option "October 2025"
+          - option "September 2025"
+          - option "August 2025"
+          - option "July 2025"
+          - option "June 2025"
+          - option "May 2025"
+          - option "April 2025"
+          - option "March 2025"
+          - option "February 2025"
+          - option "January 2025"
+          - option "December 2024"
+          - option "November 2024"
+          - option "October 2024"
+          - option "September 2024"
+          - option "August 2024"
+          - option "July 2024"
+          - option "June 2024"
+          - option "May 2024"
+          - option "April 2024"
+          - option "March 2024"
+          - option "February 2024"
+          - option "January 2024"
+          - option "December 2023"
+          - option "November 2023"
+          - option "October 2023"
+          - option "September 2023"
+          - option "August 2023"
+          - option "July 2023"
+          - option "June 2023"
+          - option "May 2023"
+          - option "April 2023"
+          - option "March 2023"
+          - option "February 2023"
+        - button " Upload FS PDF" [ref=e43] [cursor=pointer]:
+          - generic [ref=e44]: 
+          - text: Upload FS PDF
+        - button "AU Admin User " [ref=e46] [cursor=pointer]:
+          - generic [ref=e47]: AU
+          - generic [ref=e48]: Admin User
+          - generic [ref=e49]: 
+    - generic [ref=e50]:
+      - button " Overview" [ref=e51] [cursor=pointer]:
+        - generic [ref=e52]: 
+        - text: Overview
+      - button " AI Insights" [ref=e53] [cursor=pointer]:
+        - generic [ref=e54]: 
+        - text: AI Insights
+      - button " Trends" [ref=e55] [cursor=pointer]:
+        - generic [ref=e56]: 
+        - text: Trends
+      - button " QA Report" [ref=e57] [cursor=pointer]:
+        - generic [ref=e58]: 
+        - text: QA Report
+    - generic [ref=e59]:
+      - generic [ref=e60]:
+        - generic [ref=e61]:
+          - generic [ref=e62]: 
+          - text: Monthly FS Upload
+        - generic [ref=e63]: January 2026
+      - generic [ref=e64]:
+        - generic [ref=e65]:
+          - button "Choose File" [ref=e66]
+          - button " Import FS PDF" [disabled] [ref=e67]:
+            - generic [ref=e68]: 
+            - text: Import FS PDF
+          - button "Clear" [ref=e69] [cursor=pointer]
+        - generic [ref=e70]:
+          - text: Upload the
+          - strong [ref=e71]: Financial Statements (FS) PDF
+          - text: . All dashboard numbers are derived only from this document.
+    - generic [ref=e72]:
+      - generic [ref=e73]:
+        - generic [ref=e74]:
+          - generic [ref=e75]: 
+          - text: NOI
+        - generic [ref=e76]: $31K
+        - generic [ref=e77]:
+          - text: Budget $-34,248
+          - generic [ref=e78]: ↑ 744.6% MoM
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - generic [ref=e81]: 
+          - text: Net Income
+        - generic [ref=e82]: $50K
+        - generic [ref=e83]:
+          - text: Budget $-21,748
+          - generic [ref=e84]: ↑ 229.9% MoM
+      - generic [ref=e85]:
+        - generic [ref=e86]:
+          - generic [ref=e87]: 
+          - text: Cash Position
+        - generic [ref=e88]: $7.09M
+        - generic [ref=e89]:
+          - text: Operating $2.14M
+          - generic [ref=e90]: ↓ 2.2% MoM
+      - generic [ref=e91]:
+        - generic [ref=e92]:
+          - generic [ref=e93]: 
+          - text: A/R Total
+        - generic [ref=e94]: $73K
+        - generic [ref=e95]:
+          - text: 60+ Days $42K
+          - generic [ref=e96]: ↓ 14.9% MoM
+    - generic [ref=e97]:
+      - generic [ref=e98]:
+        - generic [ref=e99]:
+          - generic [ref=e100]: 
+          - text: Income Statement
+        - generic [ref=e101]: From PDFs
+      - generic [ref=e102]:
+        - generic [ref=e103]:
+          - button "MTD" [ref=e104] [cursor=pointer]
+          - button "YTD" [ref=e105] [cursor=pointer]
+        - table [ref=e107]:
+          - rowgroup [ref=e108]:
+            - row "Description Actual Budget Variance" [ref=e109]:
+              - columnheader "Description" [ref=e110]
+              - columnheader "Actual" [ref=e111]
+              - columnheader "Budget" [ref=e112]
+              - columnheader "Variance" [ref=e113]
+          - rowgroup [ref=e114]:
+            - row " Total Revenue $615K $605K $10K" [ref=e115]:
+              - cell " Total Revenue" [ref=e116]:
+                - generic [ref=e117]: 
+                - text: Total Revenue
+              - cell "$615K" [ref=e118]
+              - cell "$605K" [ref=e119]
+              - cell "$10K" [ref=e120]
+            - row " Total Operating Expenses $584K $640K $56K" [ref=e121]:
+              - cell " Total Operating Expenses" [ref=e122]:
+                - generic [ref=e123]: 
+                - text: Total Operating Expenses
+              - cell "$584K" [ref=e124]
+              - cell "$640K" [ref=e125]
+              - cell "$56K" [ref=e126]
+            - row " Net Operating Income (NOI) $31K $-34,248 $65K" [ref=e127]:
+              - cell " Net Operating Income (NOI)" [ref=e128]:
+                - generic [ref=e129]: 
+                - text: Net Operating Income (NOI)
+              - cell "$31K" [ref=e130]
+              - cell "$-34,248" [ref=e131]
+              - cell "$65K" [ref=e132]
+            - row " Net Income $50K $-21,748 $72K" [ref=e133]:
+              - cell " Net Income" [ref=e134]:
+                - generic [ref=e135]: 
+                - text: Net Income
+              - cell "$50K" [ref=e136]
+              - cell "$-21,748" [ref=e137]
+              - cell "$72K" [ref=e138]
+        - generic [ref=e139]:
+          - button " Revenue Breakdown (11 items) $615K " [active] [ref=e671] [cursor=pointer]:
+            - generic [ref=e141]:
+              - generic [ref=e142]: 
+              - text: Revenue Breakdown (11 items)
+            - generic [ref=e143]:
+              - generic [ref=e144]: $615K
+              - generic [ref=e145]: 
+          - table [ref=e673]:
+            - rowgroup [ref=e674]:
+              - row "Item Actual ↓ Budget Variance" [ref=e675]:
+                - columnheader "Item" [ref=e676] [cursor=pointer]
+                - columnheader "Actual ↓" [ref=e677] [cursor=pointer]
+                - columnheader "Budget" [ref=e678] [cursor=pointer]
+                - columnheader "Variance" [ref=e679] [cursor=pointer]
+            - rowgroup [ref=e680]:
+              - row "MAINTENANCE $596K $596K $0" [ref=e681]:
+                - cell "MAINTENANCE" [ref=e682]
+                - cell "$596K" [ref=e683]
+                - cell "$596K" [ref=e684]
+                - cell "$0" [ref=e685]
+              - row "INTEREST INCOME - CAPITAL $24K $13K $12K" [ref=e686]:
+                - cell "INTEREST INCOME - CAPITAL" [ref=e687]
+                - cell "$24K" [ref=e688]
+                - cell "$13K" [ref=e689]
+                - cell "$12K" [ref=e690]
+              - row "LAUNDRY $4K $3K $714" [ref=e691]:
+                - cell "LAUNDRY" [ref=e692]
+                - cell "$4K" [ref=e693]
+                - cell "$3K" [ref=e694]
+                - cell "$714" [ref=e695]
+              - row "CARRIAGE/BIKE ROOM INCOME $1K $1K $-65" [ref=e696]:
+                - cell "CARRIAGE/BIKE ROOM INCOME" [ref=e697]
+                - cell "$1K" [ref=e698]
+                - cell "$1K" [ref=e699]
+                - cell "$-65" [ref=e700]
+              - row "KEY INCOME $100 $0 $100" [ref=e701]:
+                - cell "KEY INCOME" [ref=e702]
+                - cell "$100" [ref=e703]
+                - cell "$0" [ref=e704]
+                - cell "$100" [ref=e705]
+              - row "RETURNED CHECK FEES $60 $0 $60" [ref=e706]:
+                - cell "RETURNED CHECK FEES" [ref=e707]
+                - cell "$60" [ref=e708]
+                - cell "$0" [ref=e709]
+                - cell "$60" [ref=e710]
+              - row "TENANT CHARGEBACKS $34 $0 $34" [ref=e711]:
+                - cell "TENANT CHARGEBACKS" [ref=e712]
+                - cell "$34" [ref=e713]
+                - cell "$0" [ref=e714]
+                - cell "$34" [ref=e715]
+              - row "TRNSFER FROM RESERVE $0 $210K $-210,250" [ref=e716]:
+                - cell "TRNSFER FROM RESERVE" [ref=e717]
+                - cell "$0" [ref=e718]
+                - cell "$210K" [ref=e719]
+                - cell "$-210,250" [ref=e720]
+              - row "R/E ASSESSMENT $0 $0 $0" [ref=e721]:
+                - cell "R/E ASSESSMENT" [ref=e722]
+                - cell "$0" [ref=e723]
+                - cell "$0" [ref=e724]
+                - cell "$0" [ref=e725]
+              - row "CAPITAL EXPENDITURES $-5,360 $-210,250 $205K" [ref=e726]:
+                - cell "CAPITAL EXPENDITURES" [ref=e727]
+                - cell "$-5,360" [ref=e728]
+                - cell "$-210,250" [ref=e729]
+                - cell "$205K" [ref=e730]
+              - row "Other Revenue (Unclassified) $-5,703 $-7,917 $2K" [ref=e731]:
+                - cell "Other Revenue (Unclassified)" [ref=e732]
+                - cell "$-5,703" [ref=e733]
+                - cell "$-7,917" [ref=e734]
+                - cell "$2K" [ref=e735]
+            - rowgroup [ref=e736]:
+              - row "Total Revenue $615K $605K" [ref=e737]:
+                - cell "Total Revenue" [ref=e738]
+                - cell "$615K" [ref=e739]
+                - cell "$605K" [ref=e740]
+                - cell [ref=e741]
+        - button " Expense Breakdown (67 items) $584K " [ref=e147] [cursor=pointer]:
+          - generic [ref=e148]:
+            - generic [ref=e149]: 
+            - text: Expense Breakdown (67 items)
+          - generic [ref=e150]:
+            - generic [ref=e151]: $584K
+            - generic [ref=e152]: 
+    - generic [ref=e153]:
+      - generic [ref=e154]:
+        - generic [ref=e155]:
+          - generic [ref=e156]: 
+          - text: Receivables Aging
+        - generic [ref=e157]: From PDFs
+      - generic [ref=e158]:
+        - generic [ref=e160]:
+          - generic [ref=e161]: Current (0–30)
+          - generic [ref=e162]: $31K
+        - generic [ref=e166]:
+          - generic [ref=e167]: 31–60
+          - generic [ref=e168]: $387
+        - generic [ref=e172]:
+          - generic [ref=e173]: 61–90
+          - generic [ref=e174]: $9K
+        - generic [ref=e178]:
+          - generic [ref=e179]: 90+
+          - generic [ref=e180]: $33K
+    - generic [ref=e183]:
+      - generic [ref=e184]:
+        - generic [ref=e185]:
+          - generic [ref=e186]: 
+          - text: Cash Breakdown
+        - generic [ref=e187]: From PDFs
+      - generic [ref=e188]:
+        - generic [ref=e189]:
+          - generic [ref=e190]: 30%
+          - generic [ref=e191]: 67%
+          - generic [ref=e192]: 3%
+        - generic [ref=e193]:
+          - generic [ref=e194]: Operating $2.14M
+          - generic [ref=e196]: Reserve $4.76M
+          - generic [ref=e198]: Capital —
+          - generic [ref=e200]: Escrow/Security $198K
+    - generic [ref=e202]:
+      - generic [ref=e203]:
+        - generic [ref=e204]:
+          - generic [ref=e205]: 
+          - text: Cash Movement vs Prior Month
+        - generic [ref=e206]: Why total cash moved
+      - generic [ref=e207]:
+        - generic [ref=e208]: "Total cash decreased -$161,191 vs prior month. Largest decrease: Escrow/Security -$94,152. Largest offset: Reserve +$23,524."
+        - generic [ref=e209]:
+          - generic [ref=e210]:
+            - generic [ref=e211]:
+              - text: Escrow/Security
+              - generic [ref=e212]: $291,704 -> $197,552
+            - generic [ref=e213]: "-$94,152"
+          - generic [ref=e214]:
+            - generic [ref=e215]:
+              - text: Operating
+              - generic [ref=e216]: $2,227,015 -> $2,136,452
+            - generic [ref=e217]: "-$90,563"
+          - generic [ref=e218]:
+            - generic [ref=e219]:
+              - text: Reserve
+              - generic [ref=e220]: $4,735,211 -> $4,758,735
+            - generic [ref=e221]: +$23,524
+        - generic [ref=e222]: "Accrual vs cash timing check: Net income changed +$88,324. A/R changed -$12,801. Cash can move differently than net income due to reserve/escrow transfers and working-capital timing."
+    - generic [ref=e223]:
+      - generic [ref=e224]:
+        - generic [ref=e225]:
+          - generic [ref=e226]: 
+          - text: Expense Breakdown
+        - generic [ref=e227]: MTD
+      - generic [ref=e228]:
+        - generic [ref=e229]:
+          - generic [ref=e230]:
+            - generic [ref=e231]: Total expenses
+            - generic [ref=e232]: $583,962
+            - generic [ref=e233]: Budget $639,536 • Var -$55,574 (-8.7%)
+          - generic [ref=e234]:
+            - generic [ref=e235]: Largest driver
+            - generic "REAL ESTATE TAXES" [ref=e236]
+            - generic [ref=e237]: $161,646 • 22.6%
+          - generic [ref=e238]:
+            - generic [ref=e239]: Largest variance
+            - generic "STERLING NATIONAL" [ref=e240]
+            - generic [ref=e241]: "-$45,773 vs budget"
+          - generic [ref=e242]:
+            - generic [ref=e243]: Biggest MoM increase
+            - generic "WATER and SEWER CHARGES" [ref=e244]
+            - generic [ref=e245]: +$73,533 • —
+        - generic [ref=e246]:
+          - img [ref=e248]
+          - generic [ref=e249]:
+            - generic "REAL ESTATE TAXES" [ref=e252]:
+              - generic [ref=e253]: REAL ESTATE TAXES
+              - generic [ref=e254]:
+                - generic [ref=e255]: $161,646
+                - generic [ref=e256]: •
+                - generic [ref=e257]: 22.6%
+                - generic [ref=e258]: •
+                - generic [ref=e259]: MoM -1.2%
+            - generic "OIL" [ref=e262]:
+              - generic [ref=e263]: OIL
+              - generic [ref=e264]:
+                - generic [ref=e265]: $92,922
+                - generic [ref=e266]: •
+                - generic [ref=e267]: 13.0%
+                - generic [ref=e268]: •
+                - generic [ref=e269]: MoM -3.3%
+            - generic "AVID PAYABLES" [ref=e272]:
+              - generic [ref=e273]: AVID PAYABLES
+              - generic [ref=e274]:
+                - generic [ref=e275]: $74,130
+                - generic [ref=e276]: •
+                - generic [ref=e277]: 10.4%
+                - generic [ref=e278]: •
+                - generic [ref=e279]: MoM +127.7%
+            - generic "WATER and SEWER CHARGES" [ref=e282]:
+              - generic [ref=e283]: WATER and SEWER CHARGES
+              - generic [ref=e284]:
+                - generic [ref=e285]: $73,533
+                - generic [ref=e286]: •
+                - generic [ref=e287]: 10.3%
+                - generic [ref=e288]: •
+                - generic [ref=e289]: MoM —
+            - generic "PAYROLL" [ref=e292]:
+              - generic [ref=e293]: PAYROLL
+              - generic [ref=e294]:
+                - generic [ref=e295]: $46,383
+                - generic [ref=e296]: •
+                - generic [ref=e297]: 6.5%
+                - generic [ref=e298]: •
+                - generic [ref=e299]: MoM -17.5%
+            - generic "ARBOR COMMERCIAL MORT. LLC/1065" [ref=e302]:
+              - generic [ref=e303]: ARBOR COMMERCIAL MORT. LLC/1065
+              - generic [ref=e304]:
+                - generic [ref=e305]: $46,368
+                - generic [ref=e306]: •
+                - generic [ref=e307]: 6.5%
+                - generic [ref=e308]: •
+                - generic [ref=e309]: MoM +0.0%
+            - generic "INSURANCE" [ref=e312]:
+              - generic [ref=e313]: INSURANCE
+              - generic [ref=e314]:
+                - generic [ref=e315]: $45,186
+                - generic [ref=e316]: •
+                - generic [ref=e317]: 6.3%
+                - generic [ref=e318]: •
+                - generic [ref=e319]: MoM -43.7%
+            - generic "MORTGAGE INTEREST" [ref=e322]:
+              - generic [ref=e323]: MORTGAGE INTEREST
+              - generic [ref=e324]:
+                - generic [ref=e325]: $35,899
+                - generic [ref=e326]: •
+                - generic [ref=e327]: 5.0%
+                - generic [ref=e328]: •
+                - generic [ref=e329]: MoM +2.9%
+            - generic "2ND MORTGAGE INTEREST" [ref=e332]:
+              - generic [ref=e333]: 2ND MORTGAGE INTEREST
+              - generic [ref=e334]:
+                - generic [ref=e335]: $24,854
+                - generic [ref=e336]: •
+                - generic [ref=e337]: 3.5%
+                - generic [ref=e338]: •
+                - generic [ref=e339]: MoM +3.1%
+            - generic "PENSION & HOSPITALIZATION" [ref=e342]:
+              - generic [ref=e343]: PENSION & HOSPITALIZATION
+              - generic [ref=e344]:
+                - generic [ref=e345]: $24,173
+                - generic [ref=e346]: •
+                - generic [ref=e347]: 3.4%
+                - generic [ref=e348]: •
+                - generic [ref=e349]: MoM -5.3%
+            - generic "PAYROLL - ONSITE MANAGEMENT" [ref=e352]:
+              - generic [ref=e353]: PAYROLL - ONSITE MANAGEMENT
+              - generic [ref=e354]:
+                - generic [ref=e355]: $13,750
+                - generic [ref=e356]: •
+                - generic [ref=e357]: 1.9%
+                - generic [ref=e358]: •
+                - generic [ref=e359]: MoM +0.0%
+            - generic "SUBLET FEE" [ref=e362]:
+              - generic [ref=e363]: SUBLET FEE
+              - generic [ref=e364]:
+                - generic [ref=e365]: $12,973
+                - generic [ref=e366]: •
+                - generic [ref=e367]: 1.8%
+                - generic [ref=e368]: •
+                - generic [ref=e369]: MoM -28.3%
+            - generic "ELEVATOR REPAIR" [ref=e372]:
+              - generic [ref=e373]: ELEVATOR REPAIR
+              - generic [ref=e374]:
+                - generic [ref=e375]: $11,475
+                - generic [ref=e376]: •
+                - generic [ref=e377]: 1.6%
+                - generic [ref=e378]: •
+                - generic [ref=e379]: MoM —
+            - generic "ELECTRIC" [ref=e382]:
+              - generic [ref=e383]: ELECTRIC
+              - generic [ref=e384]:
+                - generic [ref=e385]: $7,968
+                - generic [ref=e386]: •
+                - generic [ref=e387]: 1.1%
+                - generic [ref=e388]: •
+                - generic [ref=e389]: MoM -9.9%
+            - generic "MANAGEMENT FEES" [ref=e392]:
+              - generic [ref=e393]: MANAGEMENT FEES
+              - generic [ref=e394]:
+                - generic [ref=e395]: $6,813
+                - generic [ref=e396]: •
+                - generic [ref=e397]: 1.0%
+                - generic [ref=e398]: •
+                - generic [ref=e399]: MoM +9.0%
+            - generic "PAYROLL TAXES" [ref=e402]:
+              - generic [ref=e403]: PAYROLL TAXES
+              - generic [ref=e404]:
+                - generic [ref=e405]: $6,011
+                - generic [ref=e406]: •
+                - generic [ref=e407]: 0.8%
+                - generic [ref=e408]: •
+                - generic [ref=e409]: MoM +0.4%
+            - generic "ELEVATOR CONTRACT" [ref=e412]:
+              - generic [ref=e413]: ELEVATOR CONTRACT
+              - generic [ref=e414]:
+                - generic [ref=e415]: $4,676
+                - generic [ref=e416]: •
+                - generic [ref=e417]: 0.7%
+                - generic [ref=e418]: •
+                - generic [ref=e419]: MoM +7.0%
+            - generic "SUPPLIES-CLEANING/BUILDING/OTHER" [ref=e422]:
+              - generic [ref=e423]: SUPPLIES-CLEANING/BUILDING/OTHER
+              - generic [ref=e424]:
+                - generic [ref=e425]: $4,456
+                - generic [ref=e426]: •
+                - generic [ref=e427]: 0.6%
+                - generic [ref=e428]: •
+                - generic [ref=e429]: MoM +100.4%
+            - generic "LICENSES-FEES-PERMITS-SUBSCRIPTIONS" [ref=e432]:
+              - generic [ref=e433]: LICENSES-FEES-PERMITS-SUBSCRIPTIONS
+              - generic [ref=e434]:
+                - generic [ref=e435]: $3,925
+                - generic [ref=e436]: •
+                - generic [ref=e437]: 0.5%
+                - generic [ref=e438]: •
+                - generic [ref=e439]: MoM -47.7%
+            - generic "WORKERS COMP & DISABILITY" [ref=e442]:
+              - generic [ref=e443]: WORKERS COMP & DISABILITY
+              - generic [ref=e444]:
+                - generic [ref=e445]: $3,919
+                - generic [ref=e446]: •
+                - generic [ref=e447]: 0.5%
+                - generic [ref=e448]: •
+                - generic [ref=e449]: MoM +308.2%
+            - generic "CABLE/INTERNET" [ref=e452]:
+              - generic [ref=e453]: CABLE/INTERNET
+              - generic [ref=e454]:
+                - generic [ref=e455]: $3,815
+                - generic [ref=e456]: •
+                - generic [ref=e457]: 0.5%
+                - generic [ref=e458]: •
+                - generic [ref=e459]: MoM +0.0%
+            - generic "UNIFORMS" [ref=e462]:
+              - generic [ref=e463]: UNIFORMS
+              - generic [ref=e464]:
+                - generic [ref=e465]: $1,410
+                - generic [ref=e466]: •
+                - generic [ref=e467]: 0.2%
+                - generic [ref=e468]: •
+                - generic [ref=e469]: MoM +167.8%
+            - generic "GAS - COOKING" [ref=e472]:
+              - generic [ref=e473]: GAS - COOKING
+              - generic [ref=e474]:
+                - generic [ref=e475]: $1,251
+                - generic [ref=e476]: •
+                - generic [ref=e477]: 0.2%
+                - generic [ref=e478]: •
+                - generic [ref=e479]: MoM -19.1%
+            - generic "TELEPHONE" [ref=e482]:
+              - generic [ref=e483]: TELEPHONE
+              - generic [ref=e484]:
+                - generic [ref=e485]: $1,178
+                - generic [ref=e486]: •
+                - generic [ref=e487]: 0.2%
+                - generic [ref=e488]: •
+                - generic [ref=e489]: MoM +1.7%
+            - generic "STERLING NATIONAL" [ref=e492]:
+              - generic [ref=e493]: STERLING NATIONAL
+              - generic [ref=e494]:
+                - generic [ref=e495]: $1,034
+                - generic [ref=e496]: •
+                - generic [ref=e497]: 0.1%
+                - generic [ref=e498]: •
+                - generic [ref=e499]: MoM —
+            - generic "MISC ADMINISTRATIVE EXPENSE" [ref=e502]:
+              - generic [ref=e503]: MISC ADMINISTRATIVE EXPENSE
+              - generic [ref=e504]:
+                - generic [ref=e505]: $1,007
+                - generic [ref=e506]: •
+                - generic [ref=e507]: 0.1%
+                - generic [ref=e508]: •
+                - generic [ref=e509]: MoM -88.2%
+            - generic "GLASS DOORS WINDOWS" [ref=e512]:
+              - generic [ref=e513]: GLASS DOORS WINDOWS
+              - generic [ref=e514]:
+                - generic [ref=e515]: $855
+                - generic [ref=e516]: •
+                - generic [ref=e517]: 0.1%
+                - generic [ref=e518]: •
+                - generic [ref=e519]: MoM —
+            - generic "CONSULTANT FEES" [ref=e522]:
+              - generic [ref=e523]: CONSULTANT FEES
+              - generic [ref=e524]:
+                - generic [ref=e525]: $765
+                - generic [ref=e526]: •
+                - generic [ref=e527]: 0.1%
+                - generic [ref=e528]: •
+                - generic [ref=e529]: MoM +0.0%
+            - generic "OTHER LABOR COSTS" [ref=e532]:
+              - generic [ref=e533]: OTHER LABOR COSTS
+              - generic [ref=e534]:
+                - generic [ref=e535]: $445
+                - generic [ref=e536]: •
+                - generic [ref=e537]: 0.1%
+                - generic [ref=e538]: •
+                - generic [ref=e539]: MoM +11.3%
+            - generic "DOORS and LOCKS" [ref=e542]:
+              - generic [ref=e543]: DOORS and LOCKS
+              - generic [ref=e544]:
+                - generic [ref=e545]: $402
+                - generic [ref=e546]: •
+                - generic [ref=e547]: 0.1%
+                - generic [ref=e548]: •
+                - generic [ref=e549]: MoM -51.7%
+            - generic "PLUMBING REPAIRS" [ref=e552]:
+              - generic [ref=e553]: PLUMBING REPAIRS
+              - generic [ref=e554]:
+                - generic [ref=e555]: $336
+                - generic [ref=e556]: •
+                - generic [ref=e557]: 0.0%
+                - generic [ref=e558]: •
+                - generic [ref=e559]: MoM -62.2%
+            - generic "OFFICE EXPENSES" [ref=e562]:
+              - generic [ref=e563]: OFFICE EXPENSES
+              - generic [ref=e564]:
+                - generic [ref=e565]: $328
+                - generic [ref=e566]: •
+                - generic [ref=e567]: 0.0%
+                - generic [ref=e568]: •
+                - generic [ref=e569]: MoM -15.9%
+            - generic "LEASED OFFICE EQUIP." [ref=e572]:
+              - generic [ref=e573]: LEASED OFFICE EQUIP.
+              - generic [ref=e574]:
+                - generic [ref=e575]: $262
+                - generic [ref=e576]: •
+                - generic [ref=e577]: 0.0%
+                - generic [ref=e578]: •
+                - generic [ref=e579]: MoM +1441.2%
+            - generic "Schedule" [ref=e582]:
+              - generic [ref=e583]: Schedule
+              - generic [ref=e584]:
+                - generic [ref=e585]: $4
+                - generic [ref=e586]: •
+                - generic [ref=e587]: 0.0%
+                - generic [ref=e588]: •
+                - generic [ref=e589]: MoM +0.0%
+        - generic [ref=e590]:
+          - generic [ref=e591]:
+            - generic [ref=e592]: Total operating expenses (MTD)
+            - generic [ref=e593]: $714,152
+          - generic [ref=e594]: "Coverage: 97% of expense line items • Top driver: REAL ESTATE TAXES (22.6%) • Filtered 2 low-confidence rows • Excluded 30 credit/zero items from the pie"
+    - generic [ref=e596]:
+      - generic [ref=e597]:
+        - generic [ref=e598]:
+          - generic [ref=e599]: 
+          - text: NOI Trend
+        - generic [ref=e600]: Last 6 Months
+      - img [ref=e602]
+    - generic [ref=e603]:
+      - generic [ref=e604]:
+        - generic [ref=e605]:
+          - generic [ref=e606]:
+            - generic [ref=e607]: 
+            - text: Notes Intelligence
+          - generic [ref=e608]: Variance-First
+        - generic [ref=e609]:
+          - generic [ref=e610]:
+            - generic [ref=e611]: Structured note entries
+            - generic [ref=e612]: "0"
+          - generic [ref=e613]:
+            - generic [ref=e614]: Total noted spend
+            - generic [ref=e615]: $0
+          - generic [ref=e616]:
+            - generic [ref=e617]: Mapped (high confidence)
+            - generic [ref=e618]: "0"
+          - generic [ref=e619]:
+            - generic [ref=e620]: Potential related (low confidence)
+            - generic [ref=e621]: "0"
+          - generic [ref=e622]:
+            - generic [ref=e623]: Unmapped notes
+            - generic [ref=e624]: "0"
+      - generic [ref=e625]:
+        - generic [ref=e626]:
+          - generic [ref=e627]:
+            - generic [ref=e628]: 
+            - text: Variance Explanations
+          - generic [ref=e629]: Top 3
+        - generic [ref=e630]:
+          - generic [ref=e631]:
+            - generic [ref=e632]:
+              - text: METROPOLITAN /
+              - generic [ref=e633]: 0 linked notes
+            - generic [ref=e634]: "-$3,159,148"
+            - generic [ref=e635]: no link
+          - generic [ref=e636]:
+            - generic [ref=e637]:
+              - text: IDB /
+              - generic [ref=e638]: 0 linked notes
+            - generic [ref=e639]: "-$904,345"
+            - generic [ref=e640]: no link
+          - generic [ref=e641]:
+            - generic [ref=e642]:
+              - text: TRNSFER FROM RESERVE
+              - generic [ref=e643]: 0 linked notes
+            - generic [ref=e644]: "-$210,250"
+            - generic [ref=e645]: no link
+    - generic [ref=e646]:
+      - generic [ref=e647]:
+        - generic [ref=e648]:
+          - generic [ref=e649]:
+            - generic [ref=e650]: 
+            - text: Notes
+          - generic [ref=e651]: From imports
+        - list [ref=e653]:
+          - listitem [ref=e654]: Imported from PDFs on 2/25/2026, 9:28:42 PM.
+      - generic [ref=e655]:
+        - generic [ref=e656]:
+          - generic [ref=e657]:
+            - generic [ref=e658]: 
+            - text: Source FS PDF
+          - generic [ref=e659]: 1 file
+        - generic [ref=e661]:
+          - generic [ref=e662]: B#1890 JAN 2026 FS.pdf
+          - generic [ref=e663]: financial-statements
+    - contentinfo [ref=e664]:
+      - generic [ref=e665]:
+        - generic [ref=e666]: 
+        - text: "Data secured with 256-bit encryption • Last sync: 2/25/2026, 9:31:58 PM"
+      - generic [ref=e667]:
+        - generic [ref=e668] [cursor=pointer]: Security
+        - generic [ref=e669] [cursor=pointer]: Help
+        - generic [ref=e670] [cursor=pointer]: Support

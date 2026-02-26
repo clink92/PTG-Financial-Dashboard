@@ -1,10 +1,12 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
+import type { Prisma } from '@prisma/client'
 import Redis from 'ioredis'
 import { z } from 'zod'
 
 import type { ImportedPdfKind } from '@/lib/pdfImport'
+import { getPrismaClient, hasPrismaDatabaseEnv } from '@/lib/prisma'
 
 export type ImportLogEntry = {
   importedAt: string
@@ -60,6 +62,10 @@ function hasVercelKVEnv() {
   return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)
 }
 
+function hasPrismaEnv() {
+  return hasPrismaDatabaseEnv()
+}
+
 function isServerless() {
   return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
 }
@@ -102,6 +108,23 @@ const KV_PREFIX = 'ptg:importLog:'
 
 export async function getImportLog(monthKey: string): Promise<ImportLogEntry[]> {
   const key = `${KV_PREFIX}${monthKey}`
+
+  // Prisma / Postgres (preferred)
+  if (hasPrismaEnv()) {
+    const prisma = getPrismaClient()
+    if (prisma) {
+      try {
+        const row = await prisma.importLogMonth.findUnique({
+          where: { monthKey },
+          select: { entries: true },
+        })
+        const validated = ImportLogSchema.safeParse(row?.entries ?? [])
+        return validated.success ? validated.data : []
+      } catch (err) {
+        console.warn('[importLogStore] Prisma get failed, falling back:', err)
+      }
+    }
+  }
 
   // Redis
   if (hasRedisEnv()) {
@@ -149,6 +172,23 @@ export async function appendImportLog(monthKey: string, entry: ImportLogEntry, o
   const existing = await getImportLog(monthKey)
   const next = [entry, ...existing].slice(0, maxEntries)
 
+  // Prisma / Postgres (preferred)
+  if (hasPrismaEnv()) {
+    const prisma = getPrismaClient()
+    if (prisma) {
+      try {
+        await prisma.importLogMonth.upsert({
+          where: { monthKey },
+          create: { monthKey, entries: next as unknown as Prisma.InputJsonValue },
+          update: { entries: next as unknown as Prisma.InputJsonValue },
+        })
+        return
+      } catch (err) {
+        console.warn('[importLogStore] Prisma set failed, falling back:', err)
+      }
+    }
+  }
+
   // Redis
   if (hasRedisEnv()) {
     const redis = getRedisClient()
@@ -178,4 +218,3 @@ export async function appendImportLog(monthKey: string, entry: ImportLogEntry, o
   store[monthKey] = next
   await writeLocalStore(store)
 }
-
