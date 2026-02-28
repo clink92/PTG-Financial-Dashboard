@@ -723,6 +723,196 @@ body {
   color: var(--text-muted);
 }
 
+/* Revenue flow map */
+.revenue-flow-card {
+  background:
+    radial-gradient(920px 320px at -8% -24%, rgba(14, 165, 233, 0.16), transparent 56%),
+    radial-gradient(860px 300px at 102% 118%, rgba(16, 185, 129, 0.14), transparent 54%),
+    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.07);
+}
+
+.revenue-flow-body {
+  position: relative;
+}
+
+.revenue-flow-header-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.revenue-flow-level-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  color: #475569;
+}
+
+.revenue-flow-level-control strong {
+  min-width: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: #0f172a;
+}
+
+.revenue-flow-level-control button {
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  border-radius: 999px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.revenue-flow-level-control button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.revenue-flow-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.revenue-flow-metric {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  padding: 12px 13px;
+  min-height: 86px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+}
+
+.revenue-flow-metric-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.revenue-flow-metric-value {
+  margin-top: 7px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.revenue-flow-metric-value.is-positive {
+  color: var(--success);
+}
+
+.revenue-flow-metric-value.is-negative {
+  color: var(--danger);
+}
+
+.revenue-flow-metric-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #475569;
+}
+
+.revenue-flow-scroll {
+  overflow-x: auto;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(240, 246, 255, 0.94));
+  border-radius: 16px;
+  padding: 12px 16px;
+}
+
+.revenue-flow-svg {
+  width: 100%;
+  min-width: 1120px;
+  height: auto;
+}
+
+.revenue-flow-stage-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  fill: #334155;
+}
+
+.revenue-flow-label-box {
+  fill: rgba(255, 255, 255, 0.98);
+  stroke: rgba(148, 163, 184, 0.56);
+  stroke-width: 1;
+  filter: drop-shadow(0 2px 7px rgba(15, 23, 42, 0.12));
+}
+
+.revenue-flow-label-link {
+  stroke: rgba(71, 85, 105, 0.34);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.revenue-flow-node-label {
+  font-size: 11px;
+  font-weight: 700;
+  fill: #0f172a;
+}
+
+.revenue-flow-node-value {
+  font-size: 11px;
+  font-weight: 600;
+  fill: #334155;
+}
+
+.revenue-flow-node-share {
+  font-size: 11px;
+  font-weight: 600;
+  fill: #475569;
+  letter-spacing: 0.01em;
+}
+
+.revenue-flow-footnote {
+  margin-top: 11px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+@media (max-width: 900px) {
+  .revenue-flow-header-tools {
+    width: 100%;
+    justify-content: flex-start;
+    margin-top: 8px;
+  }
+
+  .revenue-flow-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .revenue-flow-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .revenue-flow-metric-value {
+    font-size: 16px;
+  }
+
+  .revenue-flow-svg {
+    min-width: 980px;
+  }
+}
+
 /* Notes */
 .notes {
   font-size: 12px;
@@ -1079,12 +1269,29 @@ body {
   font-size: 13px;
   color: var(--text-main);
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .ai-insight-text {
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.5;
+}
+
+.ai-insight-category {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background: rgba(0, 51, 102, 0.08);
+  color: var(--accent);
+  border: 1px solid rgba(0, 51, 102, 0.16);
+  white-space: nowrap;
 }
 
 .ai-loading {

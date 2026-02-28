@@ -1,8 +1,17 @@
 import type { MonthlyData } from './data'
 
+type InsightCategory =
+  | 'NOI'
+  | 'Income Statement'
+  | 'Cash'
+  | 'Receivables'
+  | 'Bank Reconciliation'
+  | 'Data Quality'
+
 export interface AIInsight {
   id: string;
   type: 'positive' | 'negative' | 'neutral' | 'warning';
+  category: InsightCategory;
   title: string;
   description: string;
   metric?: string;
@@ -24,6 +33,7 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
       insights.push({
         id: 'noi-positive',
         type: 'positive',
+        category: 'NOI',
         title: 'Strong NOI Performance',
         description: `Net Operating Income exceeded budget by $${noi.variance.toLocaleString()}.`,
         metric: `+$${noi.variance.toLocaleString()}`,
@@ -33,6 +43,7 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
       insights.push({
         id: 'noi-negative',
         type: 'warning',
+        category: 'NOI',
         title: 'NOI Below Budget',
         description: `Net Operating Income is $${Math.abs(noi.variance).toLocaleString()} below budget.`,
         metric: `-$${Math.abs(noi.variance).toLocaleString()}`,
@@ -47,6 +58,7 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
     insights.push({
       id: 'expense-ratio',
       type: expenseRatio > 0.95 ? 'warning' : 'neutral',
+      category: 'Income Statement',
       title: 'Expense Ratio',
       description: `Total expenses are ${(expenseRatio * 100).toFixed(1)}% of total income.`,
       metric: `${(expenseRatio * 100).toFixed(1)}%`,
@@ -59,6 +71,7 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
     insights.push({
       id: 'cash-position',
       type: 'neutral',
+      category: 'Cash',
       title: 'Cash Position',
       description: `Total cash and cash equivalents are $${cash.total.toLocaleString()}.`,
       metric: `$${(cash.total / 1_000_000).toFixed(2)}M`,
@@ -71,6 +84,7 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
     insights.push({
       id: 'cash-composition',
       type: operatingPct < 0.25 ? 'warning' : 'neutral',
+      category: 'Cash',
       title: 'Cash Composition',
       description: `Operating cash represents ${(operatingPct * 100).toFixed(0)}% of total cash.`,
       metric: `${(operatingPct * 100).toFixed(0)}%`,
@@ -84,6 +98,7 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
     insights.push({
       id: 'receivables-total',
       type: recv.total > 100_000 || pctOver60 > 0.2 ? 'warning' : 'neutral',
+      category: 'Receivables',
       title: 'Accounts Receivable (A/R)',
       description: `Total A/R is $${recv.total.toLocaleString()} based on the aging summary in the financial statements PDF.`,
       metric: `$${recv.total.toLocaleString()}`,
@@ -94,6 +109,7 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
       insights.push({
         id: 'receivables-aging',
         type: pctOver60 > 0.2 ? 'warning' : 'neutral',
+        category: 'Receivables',
         title: 'Past-Due Concentration',
         description: `$${over60plus.toLocaleString()} of A/R is over 60 days past due (${(pctOver60 * 100).toFixed(0)}%).`,
         metric: `${(pctOver60 * 100).toFixed(0)}%`,
@@ -108,6 +124,7 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
     insights.push({
       id: 'bank-recon-items',
       type: magnitude > 50_000 ? 'warning' : 'neutral',
+      category: 'Bank Reconciliation',
       title: 'Bank Reconciliation Items',
       description: `Reconciling items net to $${bank.reconcilingItemsNet.toLocaleString()}.`,
       metric: `$${bank.reconcilingItemsNet.toLocaleString()}`,
@@ -119,12 +136,38 @@ export function generateInsights(data: MonthlyData): AIInsight[] {
     insights.push({
       id: 'insufficient-data',
       type: 'neutral',
+      category: 'Data Quality',
       title: 'Insufficient Data for Insights',
       description: 'Upload the monthly Financial Statements (FS) PDF to generate AI insights grounded in the document.',
     })
   }
 
-  return insights
+  const categoryOrder: InsightCategory[] = [
+    'NOI',
+    'Income Statement',
+    'Cash',
+    'Receivables',
+    'Bank Reconciliation',
+    'Data Quality',
+  ]
+  const typeRank: Record<AIInsight['type'], number> = {
+    warning: 0,
+    negative: 1,
+    neutral: 2,
+    positive: 3,
+  }
+
+  return [...insights].sort((a, b) => {
+    const catA = categoryOrder.indexOf(a.category)
+    const catB = categoryOrder.indexOf(b.category)
+    if (catA !== catB) return catA - catB
+
+    const typeA = typeRank[a.type] ?? 99
+    const typeB = typeRank[b.type] ?? 99
+    if (typeA !== typeB) return typeA - typeB
+
+    return a.title.localeCompare(b.title)
+  })
 }
 
 // Mock AI analysis for when OpenAI is not configured

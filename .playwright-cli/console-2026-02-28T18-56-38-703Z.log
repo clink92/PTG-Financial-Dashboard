@@ -1,0 +1,7 @@
+[    2317ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
+[    4739ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/month-data:0
+[    4739ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/month-data?months=aug-2025%2Csep-2025%2Coct-2025%2Cnov-2025%2Cdec-2025%2Cjan-2026:0
+[    4740ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/month-data:0
+[    4740ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/month-data?monthKey=jan-2026:0
+[    4740ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/month-data?months=aug-2025%2Csep-2025%2Coct-2025%2Cnov-2025%2Cdec-2025%2Cjan-2026:0
+[    4740ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/month-data?monthKey=jan-2026:0

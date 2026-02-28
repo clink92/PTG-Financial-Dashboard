@@ -1,7 +1,7 @@
 'use client'
 
 import { useSession, signOut } from 'next-auth/react'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { Fragment, useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Chart as ChartJS,
@@ -65,6 +65,92 @@ type StructuredFsNote = {
   description: string
   raw: string
 }
+
+type RevenueFlowNode = {
+  id: string
+  label: string
+  color: string
+  displayValue: number
+  sharePct: number | null
+  showLabel: boolean
+  labelPriority: number
+  stage: 'revenue-categories' | 'gross-revenue' | 'allocation' | 'expense-categories'
+  column: number
+  order: number
+  shape: 'pill' | 'bar'
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+type RevenueFlowLink = {
+  source: string
+  target: string
+  value: number
+  sharePct: number | null
+  stage: 'revenue-categories' | 'allocation' | 'expense-categories'
+  color: string
+  width: number
+  path: string
+}
+
+type FlowLevelPolicy = {
+  minLevelsPerSide: number
+  maxLevelsPerSide: number
+  minLinkWidth: number
+  maxLinkWidth: number
+  minNodeHeight: number
+  maxNodeHeight: number
+  tinyFlowThresholdPct: number
+}
+
+const flowLevelPolicy: FlowLevelPolicy = {
+  minLevelsPerSide: 3,
+  maxLevelsPerSide: 20,
+  minLinkWidth: 4,
+  maxLinkWidth: 56,
+  minNodeHeight: 18,
+  maxNodeHeight: 74,
+  tinyFlowThresholdPct: 1,
+}
+const flowLevelBounds = { min: 1, max: 20 } as const
+
+type SankeyVisualProfile = {
+  chartWidth: { compact: number; default: number }
+  chartHeight: { min: number; max: number; slope: number; base: number }
+  laneTop: number
+  laneBottomPad: number
+  laneWidths: number[]
+  labelVisibilityThresholdPct: number
+  stageLabelY: number
+  nodeWidths: { side: number; center: number; centerCore: number }
+  sourcePalette: string[]
+  corePalette: { revenue: string; opex: string; noi: string; netIncome: string }
+  expensePalette: string[]
+}
+
+const sankeyVisualProfile: SankeyVisualProfile = {
+  chartWidth: { compact: 1180, default: 1320 },
+  chartHeight: { min: 400, max: 660, slope: 58, base: 210 },
+  laneTop: 46,
+  laneBottomPad: 30,
+  laneWidths: [124, 100, 112, 136],
+  labelVisibilityThresholdPct: 1,
+  stageLabelY: 30,
+  nodeWidths: { side: 16, center: 24, centerCore: 28 },
+  sourcePalette: ['#1d4ed8', '#2563eb', '#0284c7', '#0ea5e9', '#38bdf8', '#60a5fa'],
+  corePalette: {
+    revenue: '#1e40af',
+    opex: '#dc2626',
+    noi: '#16a34a',
+    netIncome: '#15803d',
+  },
+  expensePalette: ['#ef4444', '#dc2626', '#f97316', '#fb7185', '#f43f5e', '#f87171', '#fca5a5'],
+}
+
+type LineItemSortCol = 'fs' | 'actual' | 'budget' | 'variance' | 'label'
+type LineItemSortState = { col: LineItemSortCol; dir: 'asc' | 'desc' }
 
 function parseCurrencyToken(raw: string | undefined): number | undefined {
   if (!raw) return undefined
@@ -189,8 +275,13 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview')
   const [incomeView, setIncomeView] = useState<'mtd' | 'ytd'>('mtd')
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ revenue: false, expenses: false, other: false })
-  const [revenueSort, setRevenueSort] = useState<{ col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }>({ col: 'actual', dir: 'desc' })
-  const [expenseSort, setExpenseSort] = useState<{ col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }>({ col: 'actual', dir: 'desc' })
+  const [revenueSort, setRevenueSort] = useState<LineItemSortState>({ col: 'fs', dir: 'asc' })
+  const [expenseSort, setExpenseSort] = useState<LineItemSortState>({ col: 'fs', dir: 'asc' })
+  const [otherSort, setOtherSort] = useState<LineItemSortState>({ col: 'fs', dir: 'asc' })
+  const [flowLevels, setFlowLevels] = useState<{ min: number; max: number }>({
+    min: flowLevelPolicy.minLevelsPerSide,
+    max: flowLevelPolicy.maxLevelsPerSide,
+  })
   const autoSelectedMonthRef = useRef(false)
   const chatEndRef = useRef<HTMLDivElement | null>(null)
 
@@ -313,6 +404,49 @@ export default function DashboardPage() {
     if (!chatEndRef.current) return
     chatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [chatMessages, chatLoading])
+
+  useEffect(() => {
+    const lineItems = monthData?.incomeStatement?.lineItems ?? []
+    if (!lineItems.length) {
+      setFlowLevels({
+        min: flowLevelPolicy.minLevelsPerSide,
+        max: flowLevelPolicy.maxLevelsPerSide,
+      })
+      return
+    }
+
+    const withViewActual = lineItems
+      .filter((item) => Number.isFinite(item.actual))
+      .map((item) => {
+        const hasYtd = typeof item.ytdActual === 'number'
+        const useYtd = incomeView === 'ytd' && hasYtd
+        const actual = useYtd && typeof item.ytdActual === 'number' ? item.ytdActual : item.actual
+        return { ...item, actualForView: actual }
+      })
+
+    const countPositiveCategories = (kind: 'revenue' | 'expense', defaultCategory: string): number => {
+      const totalsByCategory = new Map<string, number>()
+      for (const item of withViewActual) {
+        if (item.kind !== kind) continue
+        if (!(item.actualForView > 0)) continue
+        const category = (item.category || defaultCategory).trim() || defaultCategory
+        totalsByCategory.set(category, (totalsByCategory.get(category) ?? 0) + item.actualForView)
+      }
+      return Array.from(totalsByCategory.values()).filter((value) => value > 0).length
+    }
+
+    const revenueCategoryCount = countPositiveCategories('revenue', 'Revenues')
+    const expenseCategoryCount = countPositiveCategories('expense', 'Operating Expenses')
+    const defaultMax = Math.max(
+      flowLevelPolicy.minLevelsPerSide,
+      Math.min(flowLevelBounds.max, Math.max(revenueCategoryCount, expenseCategoryCount))
+    )
+
+    setFlowLevels({
+      min: flowLevelPolicy.minLevelsPerSide,
+      max: defaultMax,
+    })
+  }, [monthData, selectedMonth, incomeView])
 
   if (status === 'loading' || (loadingMonthData && !monthData)) {
     return (
@@ -492,6 +626,25 @@ export default function DashboardPage() {
     return `${sign}${Math.abs(value).toFixed(1)}%`
   }
 
+  const normalizeFlowLabel = (label?: string | null) => {
+    if (!label) return '—'
+    return label
+      .replace(/\s+\d[\d,]*(?:\.\d+)?(?:\s+\d[\d,]*(?:\.\d+)?){2,}/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  const compactFlowLabel = (label: string, maxLen = 32) =>
+    label.length > maxLen ? `${label.slice(0, Math.max(8, maxLen - 1))}…` : label
+
+  const formatFlowPct = (value: number, base: number): string | null => {
+    if (!(base > 0) || !Number.isFinite(value)) return null
+    const pct = (value / base) * 100
+    const absPct = Math.abs(pct)
+    if (absPct > 0 && absPct < 0.1) return `${pct < 0 ? '-' : ''}<0.1%`
+    return `${pct.toFixed(1)}%`
+  }
+
   const periodFallback = monthKeyToPeriod(selectedMonth)
   const displayMonth = monthData?.month || periodFallback.month || selectedMonth
   const displayYear = monthData?.year || periodFallback.year
@@ -523,7 +676,7 @@ export default function DashboardPage() {
 
   const hasYtdData = lineItemsForView.some((x) => x.viewIsYtd)
   const revenueLineItems = lineItemsForView.filter((x) => x.kind === 'revenue')
-  const expenseLineItems = lineItemsForView.filter((x) => x.kind !== 'revenue')
+  const expenseLineItems = lineItemsForView.filter((x) => x.kind === 'expense')
   const topRevenueItems = [...revenueLineItems].sort((a, b) => b.viewActual - a.viewActual).slice(0, 3)
   const topExpenseItems = [...expenseLineItems].sort((a, b) => b.viewActual - a.viewActual).slice(0, 3)
   const topVarianceItems = [...lineItemsForView].sort((a, b) => Math.abs(b.viewDelta) - Math.abs(a.viewDelta)).slice(0, 3)
@@ -551,31 +704,136 @@ export default function DashboardPage() {
     return Array.from(map.values()).sort((a, b) => b.total - a.total)
   })()
 
-  // Sort helper function
-  const sortItems = <T extends { label: string; viewActual: number; viewBudget: number; viewDelta: number }>(
+  type LineItemForView = (typeof lineItemsForView)[number]
+  type LineItemGroup = { name: string; order: number; items: LineItemForView[] }
+
+  const sortItems = <
+    T extends {
+      label: string
+      category?: string
+      categoryOrder?: number
+      fsOrder?: number
+      viewActual: number
+      viewBudget: number
+      viewDelta: number
+    },
+  >(
     items: T[],
-    sort: { col: 'actual' | 'budget' | 'variance' | 'label'; dir: 'asc' | 'desc' }
+    sort: LineItemSortState
   ): T[] => {
     return [...items].sort((a, b) => {
-      let valA: number | string, valB: number | string
+      if (sort.col === 'fs') {
+        const catA = typeof a.categoryOrder === 'number' ? a.categoryOrder : Number.MAX_SAFE_INTEGER
+        const catB = typeof b.categoryOrder === 'number' ? b.categoryOrder : Number.MAX_SAFE_INTEGER
+        if (catA !== catB) return sort.dir === 'asc' ? catA - catB : catB - catA
+
+        const fsA = typeof a.fsOrder === 'number' ? a.fsOrder : Number.MAX_SAFE_INTEGER
+        const fsB = typeof b.fsOrder === 'number' ? b.fsOrder : Number.MAX_SAFE_INTEGER
+        if (fsA !== fsB) return sort.dir === 'asc' ? fsA - fsB : fsB - fsA
+        return a.label.localeCompare(b.label)
+      }
+
+      let valA: number | string
+      let valB: number | string
       switch (sort.col) {
-        case 'actual': valA = a.viewActual; valB = b.viewActual; break
-        case 'budget': valA = a.viewBudget; valB = b.viewBudget; break
-        case 'variance': valA = a.viewDelta; valB = b.viewDelta; break
-        case 'label': valA = a.label.toLowerCase(); valB = b.label.toLowerCase(); break
+        case 'actual':
+          valA = a.viewActual
+          valB = b.viewActual
+          break
+        case 'budget':
+          valA = a.viewBudget
+          valB = b.viewBudget
+          break
+        case 'variance':
+          valA = Math.abs(a.viewDelta)
+          valB = Math.abs(b.viewDelta)
+          break
+        case 'label':
+          valA = a.label.toLowerCase()
+          valB = b.label.toLowerCase()
+          break
+        default:
+          valA = a.label.toLowerCase()
+          valB = b.label.toLowerCase()
       }
       if (sort.col === 'label') {
-        return sort.dir === 'asc' 
+        return sort.dir === 'asc'
           ? (valA as string).localeCompare(valB as string)
           : (valB as string).localeCompare(valA as string)
       }
-      return sort.dir === 'asc' ? (valA as number) - (valB as number) : (valB as number) - (valA as number)
+      const n = sort.dir === 'asc' ? (valA as number) - (valB as number) : (valB as number) - (valA as number)
+      if (n !== 0) return n
+      return a.label.localeCompare(b.label)
     })
+  }
+
+  const fsCategoryOrderByKind: Record<'revenue' | 'expense' | 'other', string[]> = {
+    revenue: ['Revenues', 'Other Tenant/Misc Income', 'Other Income', 'Unclassified'],
+    expense: [
+      'Payroll & Related Costs',
+      'Utilities',
+      'Service Contracts',
+      'Repairs & Maintenance',
+      'Professional Fees',
+      'Administrative & General',
+      'Property & Other Taxes',
+      'Operating Expenses',
+      'Unclassified',
+    ],
+    other: ['Debt Service', 'Other Income', 'Capital Expenditures', 'Other', 'Unclassified'],
+  }
+  const defaultCategoryByKind: Record<'revenue' | 'expense' | 'other', string> = {
+    revenue: 'Revenues',
+    expense: 'Operating Expenses',
+    other: 'Other',
+  }
+
+  const groupItemsByCategory = (
+    items: LineItemForView[],
+    kind: 'revenue' | 'expense' | 'other',
+    sort: LineItemSortState
+  ): LineItemGroup[] => {
+    const groups = new Map<string, LineItemGroup>()
+    const fallbackOrder = fsCategoryOrderByKind[kind]
+
+    for (let idx = 0; idx < items.length; idx++) {
+      const item = items[idx]
+      const category = (item.category || defaultCategoryByKind[kind]).trim() || defaultCategoryByKind[kind]
+      const configuredOrder = fallbackOrder.indexOf(category)
+      const order =
+        typeof item.categoryOrder === 'number'
+          ? item.categoryOrder
+          : configuredOrder >= 0
+            ? configuredOrder
+            : fallbackOrder.length + idx
+      const enriched: LineItemForView = {
+        ...item,
+        category,
+        categoryOrder: order,
+        fsOrder: typeof item.fsOrder === 'number' ? item.fsOrder : idx,
+      }
+      const existing = groups.get(category)
+      if (existing) {
+        existing.items.push(enriched)
+      } else {
+        groups.set(category, { name: category, order, items: [enriched] })
+      }
+    }
+
+    const sortedGroups = Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        items: sortItems(group.items, sort),
+      }))
+      .sort((a, b) => (a.order !== b.order ? a.order - b.order : a.name.localeCompare(b.name)))
+
+    return sortedGroups
   }
 
   // Group line items by kind for breakdown sections
   const revenueItemsRaw = lineItemsForView.filter((x) => x.kind === 'revenue')
-  const expenseItemsRaw = lineItemsForView.filter((x) => x.kind === 'expense' || x.kind === 'other')
+  const expenseItemsRaw = lineItemsForView.filter((x) => x.kind === 'expense')
+  const otherItemsRaw = lineItemsForView.filter((x) => x.kind === 'other')
 
   // Calculate sums and add balancing "Other" row to reconcile with FS totals
   const sumRevenueRaw = revenueItemsRaw.reduce((acc, x) => acc + (x.viewActual || 0), 0)
@@ -589,6 +847,9 @@ export default function DashboardPage() {
     ? [...revenueItemsRaw, { 
         label: 'Other Revenue (Unclassified)', 
         kind: 'revenue' as const, 
+        category: 'Unclassified',
+        categoryOrder: 999,
+        fsOrder: revenueItemsRaw.length + 1,
         viewActual: revenueDiff, 
         viewBudget: revenueBudgetDiff, 
         viewDelta: revenueDiff - revenueBudgetDiff,
@@ -598,7 +859,8 @@ export default function DashboardPage() {
         delta: revenueDiff - revenueBudgetDiff
       }]
     : revenueItemsRaw
-  const revenueItems = sortItems(revenueItemsWithBalancing, revenueSort)
+  const revenueGroups = groupItemsByCategory(revenueItemsWithBalancing, 'revenue', revenueSort)
+  const revenueItems = revenueGroups.flatMap((group) => group.items)
 
   const sumExpensesRaw = expenseItemsRaw.reduce((acc, x) => acc + (x.viewActual || 0), 0)
   const sumExpensesBudgetRaw = expenseItemsRaw.reduce((acc, x) => acc + (x.viewBudget || 0), 0)
@@ -611,6 +873,9 @@ export default function DashboardPage() {
     ? [...expenseItemsRaw, {
         label: 'Other Expenses (Unclassified)',
         kind: 'expense' as const,
+        category: 'Unclassified',
+        categoryOrder: 999,
+        fsOrder: expenseItemsRaw.length + 1,
         viewActual: expensesDiff,
         viewBudget: expensesBudgetDiff,
         viewDelta: expensesDiff - expensesBudgetDiff,
@@ -620,11 +885,15 @@ export default function DashboardPage() {
         delta: expensesDiff - expensesBudgetDiff
       }]
     : expenseItemsRaw
-  const expenseItems = sortItems(expenseItemsWithBalancing, expenseSort)
+  const expenseGroups = groupItemsByCategory(expenseItemsWithBalancing, 'expense', expenseSort)
+  const expenseItems = expenseGroups.flatMap((group) => group.items)
+  const otherGroups = groupItemsByCategory(otherItemsRaw, 'other', otherSort)
+  const otherItems = otherGroups.flatMap((group) => group.items)
 
   // Final sums (should now match FS totals)
   const sumRevenue = revenueItems.reduce((acc, x) => acc + (x.viewActual || 0), 0)
   const sumExpenses = expenseItems.reduce((acc, x) => acc + (x.viewActual || 0), 0)
+  const sumOther = otherItems.reduce((acc, x) => acc + (x.viewActual || 0), 0)
 
   const expenseTotalActual =
     typeof incomeStatement?.totalOperatingExpenses?.actual === 'number'
@@ -709,6 +978,608 @@ export default function DashboardPage() {
     : biggestMoMDecrease
       ? 'Biggest MoM decrease'
       : 'MoM change'
+
+  const flowMinLevels = Math.max(
+    flowLevelBounds.min,
+    Math.min(flowLevels.min, flowLevels.max, flowLevelBounds.max)
+  )
+  const flowMaxLevels = Math.max(
+    flowMinLevels,
+    Math.min(flowLevels.max, flowLevelBounds.max)
+  )
+  const adjustFlowMinLevels = (delta: number) => {
+    setFlowLevels((prev) => {
+      const nextMin = Math.max(flowLevelBounds.min, Math.min(prev.min + delta, flowLevelBounds.max))
+      const nextMax = Math.max(nextMin, prev.max)
+      return { min: nextMin, max: nextMax }
+    })
+  }
+  const adjustFlowMaxLevels = (delta: number) => {
+    setFlowLevels((prev) => {
+      const nextMax = Math.max(flowLevelBounds.min, Math.min(prev.max + delta, flowLevelBounds.max))
+      const nextMin = Math.min(prev.min, nextMax)
+      return { min: nextMin, max: nextMax }
+    })
+  }
+
+  type FlowCategoryTotal = { label: string; value: number; order: number }
+  type FlowNodeInput = {
+    id: string
+    label: string
+    value: number
+    color: string
+    sharePct: number | null
+    showLabel: boolean
+    labelPriority: number
+    stage: RevenueFlowNode['stage']
+  }
+  type FlowCategoryCandidate = FlowCategoryTotal & { index: number }
+  type FlowLabelEntry = { node: RevenueFlowNode; h: number; w: number; targetCenter: number; isCore: boolean }
+  const coreFlowNodeIds = new Set(['total-revenue', 'operating-expenses', 'noi', 'net-income'])
+
+  const resolveFlowLabelY = (
+    entries: FlowLabelEntry[],
+    chartHeight: number,
+    topPad: number,
+    bottomPad: number,
+    rowGap: number
+  ): number[] => {
+    if (!entries.length) return []
+    const minY = topPad
+    const maxY = chartHeight - bottomPad
+    const totalHeight =
+      entries.reduce((acc, entry) => acc + entry.h, 0) + rowGap * Math.max(0, entries.length - 1)
+
+    if (totalHeight >= maxY - minY) {
+      let packedY = minY
+      return entries.map((entry) => {
+        const y = packedY
+        packedY += entry.h + rowGap
+        return y
+      })
+    }
+
+    const positions = entries.map((entry) => entry.targetCenter - entry.h / 2)
+    let cursor = minY
+
+    for (let idx = 0; idx < entries.length; idx += 1) {
+      const nextY = Math.max(positions[idx], cursor)
+      positions[idx] = nextY
+      cursor = nextY + entries[idx].h + rowGap
+    }
+
+    const lastIdx = entries.length - 1
+    const overflow = positions[lastIdx] + entries[lastIdx].h - maxY
+    if (overflow > 0) {
+      positions[lastIdx] -= overflow
+      let nextTop = positions[lastIdx] - rowGap
+      for (let idx = lastIdx - 1; idx >= 0; idx -= 1) {
+        positions[idx] = Math.min(positions[idx], nextTop - entries[idx].h)
+        nextTop = positions[idx] - rowGap
+      }
+      if (positions[0] < minY) {
+        const shiftDown = minY - positions[0]
+        for (let idx = 0; idx < positions.length; idx += 1) positions[idx] += shiftDown
+      }
+    }
+
+    return positions
+  }
+
+  const toPositiveCategoryTotals = (groups: LineItemGroup[]): FlowCategoryTotal[] =>
+    groups
+      .map((group, idx) => ({
+        label: group.name,
+        value: group.items.reduce((acc, item) => acc + (item.viewActual || 0), 0),
+        order: Number.isFinite(group.order) ? group.order : idx,
+      }))
+      .filter((entry) => entry.value > 0)
+      .sort((a, b) => (a.order !== b.order ? a.order - b.order : a.label.localeCompare(b.label)))
+
+  const buildFlowCategoryNodes = ({
+    categories,
+    total,
+    idPrefix,
+    palette,
+    otherLabel,
+    otherColor,
+    fallbackLabel,
+    fallbackColor,
+    shareBase,
+    stage,
+  }: {
+    categories: FlowCategoryTotal[]
+    total: number
+    idPrefix: string
+    palette: string[]
+    otherLabel: string
+    otherColor: string
+    fallbackLabel: string
+    fallbackColor: string
+    shareBase: number
+    stage: RevenueFlowNode['stage']
+  }): FlowNodeInput[] => {
+    const positive: FlowCategoryCandidate[] = categories
+      .filter((entry) => entry.value > 0)
+      .map((entry, idx) => ({ ...entry, index: idx }))
+
+    if (!positive.length) {
+      if (total <= 0) return []
+      return [{ id: `${idPrefix}-1`, label: fallbackLabel, value: total, color: fallbackColor }]
+    }
+
+    let visible = [...positive]
+    let foldedValue = 0
+
+    if (visible.length > flowMaxLevels) {
+      const keepCount = Math.max(1, flowMaxLevels - 1)
+      const overflow = visible.slice(keepCount)
+      visible = visible.slice(0, keepCount)
+      foldedValue += overflow.reduce((acc, entry) => acc + entry.value, 0)
+    }
+
+    type RenderableFlowCategory = { label: string; value: number; isOther?: boolean }
+    const renderable: RenderableFlowCategory[] = visible.map((entry) => ({
+      label: entry.label,
+      value: entry.value,
+    }))
+
+    if (foldedValue > 0 && renderable.length < flowMaxLevels) {
+      renderable.push({ label: otherLabel, value: foldedValue, isOther: true })
+    }
+
+    if (!renderable.length && total > 0) {
+      renderable.push({ label: fallbackLabel, value: total })
+    }
+
+    let paletteIdx = 0
+    return renderable.map((entry, idx) => {
+      const color = entry.isOther ? otherColor : palette[paletteIdx++ % palette.length]
+      const sharePct = shareBase > 0 ? (entry.value / shareBase) * 100 : null
+      const showLabel =
+        entry.isOther ||
+        typeof sharePct !== 'number' ||
+        sharePct >= sankeyVisualProfile.labelVisibilityThresholdPct
+      return {
+        id: `${idPrefix}-${idx + 1}`,
+        label: normalizeFlowLabel(entry.label),
+        value: entry.value,
+        color,
+        sharePct,
+        showLabel,
+        labelPriority: entry.value,
+        stage,
+      }
+    })
+  }
+
+  const revenueFlowModel = (() => {
+    const revenueTotal = Math.max(0, fsRevenueActual || sumRevenue || 0)
+    const operatingExpensesActual = Math.max(0, fsExpensesActual || sumExpenses || 0)
+    const noiActual =
+      typeof monthData?.noi?.actual === 'number'
+        ? monthData.noi.actual
+        : revenueTotal - operatingExpensesActual
+    const importedNetIncomeActual = typeof monthData?.netIncome?.actual === 'number' ? monthData.netIncome.actual : null
+    const belowNoiActual = sumOther
+    const netIncomeActual =
+      typeof importedNetIncomeActual === 'number' ? importedNetIncomeActual : noiActual - belowNoiActual
+
+    if (revenueTotal <= 0) return null
+
+    const revenueCategoryTotals = toPositiveCategoryTotals(revenueGroups)
+    const expenseCategoryTotals = toPositiveCategoryTotals(expenseGroups)
+
+    const sourceNodes = buildFlowCategoryNodes({
+      categories: revenueCategoryTotals,
+      total: revenueTotal,
+      idPrefix: 'source',
+      palette: sankeyVisualProfile.sourcePalette,
+      otherLabel: 'Other Revenue',
+      otherColor: '#94a3b8',
+      fallbackLabel: 'Revenue',
+      fallbackColor: '#0284c7',
+      shareBase: revenueTotal,
+      stage: 'revenue-categories',
+    })
+
+    const expenseNodes = buildFlowCategoryNodes({
+      categories: expenseCategoryTotals,
+      total: operatingExpensesActual,
+      idPrefix: 'expense',
+      palette: sankeyVisualProfile.expensePalette,
+      otherLabel: 'Other Expenses',
+      otherColor: '#fca5a5',
+      fallbackLabel: 'Operating Expenses',
+      fallbackColor: '#dc2626',
+      shareBase: operatingExpensesActual,
+      stage: 'expense-categories',
+    })
+
+    const opexFlow = Math.min(revenueTotal, operatingExpensesActual)
+    const noiFlow = Math.max(0, revenueTotal - opexFlow)
+    const netIncomeFlow = Math.max(0, netIncomeActual)
+    const compactSides = sourceNodes.length <= 2 && expenseNodes.length <= 2
+    const chartWidth = compactSides ? sankeyVisualProfile.chartWidth.compact : sankeyVisualProfile.chartWidth.default
+    const columnCenters = compactSides ? [188, 462, 742, 1008] : [170, 470, 790, 1138]
+    const maxSideNodes = Math.max(sourceNodes.length, expenseNodes.length, 2)
+    const chartHeight = Math.max(
+      sankeyVisualProfile.chartHeight.min,
+      Math.min(
+        sankeyVisualProfile.chartHeight.max,
+        sankeyVisualProfile.chartHeight.base + maxSideNodes * sankeyVisualProfile.chartHeight.slope
+      )
+    )
+    const laneTop = sankeyVisualProfile.laneTop
+    const laneHeight = Math.max(208, chartHeight - laneTop - sankeyVisualProfile.laneBottomPad)
+    const lanes = [
+      {
+        id: 'lane-sources',
+        x: columnCenters[0] - sankeyVisualProfile.laneWidths[0] / 2,
+        w: sankeyVisualProfile.laneWidths[0],
+        fill: 'rgba(37, 99, 235, 0.05)',
+      },
+      {
+        id: 'lane-revenue',
+        x: columnCenters[1] - sankeyVisualProfile.laneWidths[1] / 2,
+        w: sankeyVisualProfile.laneWidths[1],
+        fill: 'rgba(2, 132, 199, 0.06)',
+      },
+      {
+        id: 'lane-allocation',
+        x: columnCenters[2] - sankeyVisualProfile.laneWidths[2] / 2,
+        w: sankeyVisualProfile.laneWidths[2],
+        fill: 'rgba(22, 163, 74, 0.045)',
+      },
+      {
+        id: 'lane-expenses',
+        x: columnCenters[3] - sankeyVisualProfile.laneWidths[3] / 2,
+        w: sankeyVisualProfile.laneWidths[3],
+        fill: 'rgba(220, 38, 38, 0.05)',
+      },
+    ]
+
+    const nodesBase: Array<Omit<RevenueFlowNode, 'x' | 'y' | 'w' | 'h'>> = [
+      ...sourceNodes.map((item, idx): Omit<RevenueFlowNode, 'x' | 'y' | 'w' | 'h'> => ({
+        id: item.id,
+        label: item.label,
+        color: item.color,
+        displayValue: item.value,
+        sharePct: item.sharePct,
+        showLabel: item.showLabel,
+        labelPriority: item.labelPriority,
+        stage: item.stage,
+        column: 0,
+        order: idx,
+        shape: 'pill',
+      })),
+      {
+        id: 'total-revenue',
+        label: 'Gross Revenue',
+        color: sankeyVisualProfile.corePalette.revenue,
+        displayValue: revenueTotal,
+        sharePct: 100,
+        showLabel: true,
+        labelPriority: Number.MAX_SAFE_INTEGER - 1,
+        stage: 'gross-revenue',
+        column: 1,
+        order: 0,
+        shape: 'bar',
+      },
+      {
+        id: 'operating-expenses',
+        label: 'Operating Expenses',
+        color: sankeyVisualProfile.corePalette.opex,
+        displayValue: operatingExpensesActual,
+        sharePct: revenueTotal > 0 ? (operatingExpensesActual / revenueTotal) * 100 : null,
+        showLabel: true,
+        labelPriority: Number.MAX_SAFE_INTEGER - 2,
+        stage: 'allocation',
+        column: 2,
+        order: 0,
+        shape: 'bar',
+      },
+      {
+        id: 'noi',
+        label: 'Net Operating Income',
+        color: sankeyVisualProfile.corePalette.noi,
+        displayValue: noiActual,
+        sharePct: revenueTotal > 0 ? (noiActual / revenueTotal) * 100 : null,
+        showLabel: true,
+        labelPriority: Number.MAX_SAFE_INTEGER - 3,
+        stage: 'allocation',
+        column: 2,
+        order: 1,
+        shape: 'bar',
+      },
+      {
+        id: 'net-income',
+        label: 'Net Income',
+        color: sankeyVisualProfile.corePalette.netIncome,
+        displayValue: netIncomeActual,
+        sharePct: revenueTotal > 0 ? (netIncomeActual / revenueTotal) * 100 : null,
+        showLabel: true,
+        labelPriority: Number.MAX_SAFE_INTEGER - 4,
+        stage: 'allocation',
+        column: 2,
+        order: 2,
+        shape: 'bar',
+      },
+      ...expenseNodes.map((item, idx): Omit<RevenueFlowNode, 'x' | 'y' | 'w' | 'h'> => ({
+        id: item.id,
+        label: item.label,
+        color: item.color,
+        displayValue: item.value,
+        sharePct: item.sharePct,
+        showLabel: item.showLabel,
+        labelPriority: item.labelPriority,
+        stage: item.stage,
+        column: 3,
+        order: idx,
+        shape: 'pill',
+      })),
+    ]
+
+    const linksBase: Array<Omit<RevenueFlowLink, 'width' | 'path'>> = [
+      ...sourceNodes.map((source) => ({
+        source: source.id,
+        target: 'total-revenue',
+        value: source.value,
+        sharePct: source.sharePct,
+        stage: 'revenue-categories' as const,
+        color: source.color,
+      })),
+      ...(opexFlow > 0
+        ? [
+            {
+              source: 'total-revenue',
+              target: 'operating-expenses',
+              value: opexFlow,
+              sharePct: revenueTotal > 0 ? (opexFlow / revenueTotal) * 100 : null,
+              stage: 'allocation' as const,
+              color: '#dc2626',
+            },
+          ]
+        : []),
+      ...(noiFlow > 0
+        ? [
+            {
+              source: 'total-revenue',
+              target: 'noi',
+              value: noiFlow,
+              sharePct: revenueTotal > 0 ? (noiFlow / revenueTotal) * 100 : null,
+              stage: 'allocation' as const,
+              color: '#22c55e',
+            },
+          ]
+        : []),
+      ...(netIncomeFlow > 0
+        ? [
+            {
+              source: 'total-revenue',
+              target: 'net-income',
+              value: netIncomeFlow,
+              sharePct: revenueTotal > 0 ? (netIncomeFlow / revenueTotal) * 100 : null,
+              stage: 'allocation' as const,
+              color: '#16a34a',
+            },
+          ]
+        : []),
+      ...expenseNodes
+        .map((node) => {
+          const scaled = operatingExpensesActual > 0 ? (node.value / operatingExpensesActual) * opexFlow : 0
+          return {
+            source: 'operating-expenses',
+            target: node.id,
+            value: scaled,
+            sharePct: node.sharePct,
+            stage: 'expense-categories' as const,
+            color: node.color,
+          }
+        })
+        .filter((link) => link.value > 0),
+    ]
+
+    const nonZeroLinks = linksBase.filter((link) => link.value > 0)
+    const maxLinkValue = Math.max(...nonZeroLinks.map((link) => link.value), 1)
+    const linkRange = Math.max(0, flowLevelPolicy.maxLinkWidth - flowLevelPolicy.minLinkWidth)
+
+    const linksSized = nonZeroLinks.map((link) => {
+      const ratio = maxLinkValue > 0 ? link.value / maxLinkValue : 0
+      const width = flowLevelPolicy.minLinkWidth + linkRange * Math.pow(ratio, 0.72)
+      return {
+        ...link,
+        width: Math.max(flowLevelPolicy.minLinkWidth, Math.min(flowLevelPolicy.maxLinkWidth, width)),
+        path: '',
+      }
+    })
+
+    const nodes: RevenueFlowNode[] = nodesBase.map((node) => ({
+      ...node,
+      x: columnCenters[node.column] ?? 900,
+      y: 0,
+      w:
+        node.column === 1 || node.column === 2
+          ? sankeyVisualProfile.nodeWidths.centerCore
+          : sankeyVisualProfile.nodeWidths.side,
+      h: flowLevelPolicy.minNodeHeight,
+    }))
+
+    const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+    const inTotals = new Map<string, number>()
+    const outTotals = new Map<string, number>()
+
+    for (const link of linksSized) {
+      outTotals.set(link.source, (outTotals.get(link.source) ?? 0) + link.width)
+      inTotals.set(link.target, (inTotals.get(link.target) ?? 0) + link.width)
+    }
+
+    for (const node of nodes) {
+      const minHeight =
+        node.shape === 'bar'
+          ? Math.max(flowLevelPolicy.minNodeHeight, 34)
+          : flowLevelPolicy.minNodeHeight
+      const linkedThickness = Math.max(inTotals.get(node.id) ?? 0, outTotals.get(node.id) ?? 0)
+      node.h = Math.min(flowLevelPolicy.maxNodeHeight, Math.max(minHeight, linkedThickness))
+    }
+
+    const gap = maxSideNodes >= 14 ? 6 : maxSideNodes >= 10 ? 8 : maxSideNodes >= 7 ? 10 : 14
+    for (const col of [0, 1, 2, 3]) {
+      const colNodes = nodes
+        .filter((node) => node.column === col)
+        .sort((a, b) => a.order - b.order)
+      if (!colNodes.length) continue
+
+      const colHeight = colNodes.reduce((acc, node) => acc + node.h, 0) + gap * (colNodes.length - 1)
+      let cursor = Math.max(10, (chartHeight - colHeight) / 2)
+      for (const node of colNodes) {
+        node.y = cursor
+        cursor += node.h + gap
+      }
+    }
+
+    const outCursor = new Map<string, number>()
+    const inCursor = new Map<string, number>()
+    for (const node of nodes) {
+      outCursor.set(node.id, node.y + node.h / 2 - (outTotals.get(node.id) ?? 0) / 2)
+      inCursor.set(node.id, node.y + node.h / 2 - (inTotals.get(node.id) ?? 0) / 2)
+    }
+
+    const links: RevenueFlowLink[] = linksSized.map((link) => {
+      const sourceNode = nodeMap.get(link.source)
+      const targetNode = nodeMap.get(link.target)
+      if (!sourceNode || !targetNode) {
+        return { ...link, path: '' }
+      }
+
+      const sourceStart = outCursor.get(link.source) ?? sourceNode.y + sourceNode.h / 2
+      const targetStart = inCursor.get(link.target) ?? targetNode.y + targetNode.h / 2
+      const sy = sourceStart + link.width / 2
+      const ty = targetStart + link.width / 2
+
+      outCursor.set(link.source, sourceStart + link.width)
+      inCursor.set(link.target, targetStart + link.width)
+
+      const sx = sourceNode.x + sourceNode.w / 2 + 1
+      const tx = targetNode.x - targetNode.w / 2 - 1
+      const curve = Math.max(72, (tx - sx) * 0.46)
+      const path = `M ${sx} ${sy} C ${sx + curve} ${sy}, ${tx - curve} ${ty}, ${tx} ${ty}`
+
+      return { ...link, path }
+    })
+
+    const burnRatePct = revenueTotal > 0 ? (operatingExpensesActual / revenueTotal) * 100 : null
+    const noiMarginPct = revenueTotal > 0 ? (noiActual / revenueTotal) * 100 : null
+    const netMarginPct = revenueTotal > 0 ? (netIncomeActual / revenueTotal) * 100 : null
+
+    const topSource = [...sourceNodes].sort((a, b) => b.value - a.value)[0] ?? null
+    const topExpense = [...expenseNodes].sort((a, b) => b.value - a.value)[0] ?? null
+
+    return {
+      nodes,
+      links,
+      stages: [
+        { label: 'Revenue Categories', x: columnCenters[0] },
+        { label: 'Gross Revenue', x: columnCenters[1] },
+        { label: 'Allocation', x: columnCenters[2] },
+        { label: 'Expense Categories', x: columnCenters[3] },
+      ],
+      revenueTotal,
+      operatingExpensesActual,
+      noiActual,
+      netIncomeActual,
+      burnRatePct,
+      noiMarginPct,
+      netMarginPct,
+      topSource: topSource ? { ...topSource, label: normalizeFlowLabel(topSource.label) } : null,
+      topExpense: topExpense ? { ...topExpense, label: normalizeFlowLabel(topExpense.label) } : null,
+      belowNoiActual,
+      tinyFlowThresholdPct: flowLevelPolicy.tinyFlowThresholdPct,
+      flowMinLevels,
+      flowMaxLevels,
+      chartWidth,
+      chartHeight,
+      labelVisibilityThresholdPct: sankeyVisualProfile.labelVisibilityThresholdPct,
+      lanes: lanes.map((lane) => ({
+        ...lane,
+        x: Math.max(16, Math.min(chartWidth - lane.w - 16, lane.x)),
+        y: laneTop,
+        h: laneHeight,
+      })),
+    }
+  })()
+  const revenueFlowNodeMap = revenueFlowModel
+    ? new Map(revenueFlowModel.nodes.map((node) => [node.id, node]))
+    : null
+  const revenueFlowLabelLayout = (() => {
+    const placements = new Map<string, { x: number; y: number; w: number; h: number }>()
+    if (!revenueFlowModel) return placements
+
+    const topPad = 62
+    const bottomPad = 18
+    const rowGap = 8
+
+    for (const col of [0, 1, 2, 3]) {
+      const colNodes = revenueFlowModel.nodes
+        .filter((node) => node.column === col && node.showLabel)
+        .sort((a, b) => a.order - b.order)
+
+      if (!colNodes.length) continue
+
+      let entries: FlowLabelEntry[] = colNodes.map((node) => {
+        const isCore = coreFlowNodeIds.has(node.id)
+        const h = isCore ? 60 : 40
+        const w = col === 3 ? 234 : col === 0 ? 214 : isCore ? 210 : 186
+        const targetCenter = node.y + node.h / 2
+        return { node, h, w, targetCenter, isCore }
+      })
+
+      const availableHeight = Math.max(0, revenueFlowModel.chartHeight - topPad - bottomPad)
+      const getTotalHeight = (rows: FlowLabelEntry[]) =>
+        rows.reduce((acc, entry) => acc + entry.h, 0) + rowGap * Math.max(0, rows.length - 1)
+
+      while (entries.length > 0 && getTotalHeight(entries) > availableHeight) {
+        let dropIndex = -1
+        let minPriority = Number.POSITIVE_INFINITY
+        let minShare = Number.POSITIVE_INFINITY
+
+        for (let idx = entries.length - 1; idx >= 0; idx -= 1) {
+          const entry = entries[idx]
+          if (entry.isCore) continue
+          const priority = entry.node.labelPriority
+          const share = typeof entry.node.sharePct === 'number' ? entry.node.sharePct : 0
+          if (priority < minPriority || (priority === minPriority && share <= minShare)) {
+            minPriority = priority
+            minShare = share
+            dropIndex = idx
+          }
+        }
+
+        if (dropIndex === -1) break
+        entries.splice(dropIndex, 1)
+      }
+
+      const yPositions = resolveFlowLabelY(
+        entries,
+        revenueFlowModel.chartHeight,
+        topPad,
+        bottomPad,
+        rowGap
+      )
+
+      for (let idx = 0; idx < entries.length; idx += 1) {
+        const entry = entries[idx]
+        const rawX =
+          col === 0
+            ? entry.node.x - entry.w - 18
+            : entry.node.x + entry.node.w / 2 + 12
+        const x = Math.max(8, Math.min(revenueFlowModel.chartWidth - entry.w - 8, rawX))
+        placements.set(entry.node.id, { x, y: yPositions[idx], w: entry.w, h: entry.h })
+      }
+    }
+
+    return placements
+  })()
 
   const formatMoM = (pct: number | null, invertColor = false) => {
     if (pct === null) return null
@@ -1637,10 +2508,20 @@ export default function DashboardPage() {
                           <thead>
                             <tr style={{ background: 'rgba(34, 197, 94, 0.04)' }}>
                               <th 
-                                onClick={() => setRevenueSort(s => ({ col: 'label', dir: s.col === 'label' && s.dir === 'asc' ? 'desc' : 'asc' }))}
+                                onClick={() =>
+                                  setRevenueSort((s) =>
+                                    s.col === 'fs'
+                                      ? { col: 'label', dir: 'asc' }
+                                      : s.col === 'label' && s.dir === 'asc'
+                                        ? { col: 'label', dir: 'desc' }
+                                        : { col: 'fs', dir: 'asc' }
+                                  )
+                                }
                                 style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
                               >
-                                Item {revenueSort.col === 'label' && (revenueSort.dir === 'asc' ? '↑' : '↓')}
+                                Item
+                                {revenueSort.col === 'label' && ` ${revenueSort.dir === 'asc' ? '↑' : '↓'}`}
+                                {revenueSort.col === 'fs' && ' • FS'}
                               </th>
                               <th 
                                 onClick={() => setRevenueSort(s => ({ col: 'actual', dir: s.col === 'actual' && s.dir === 'desc' ? 'asc' : 'desc' }))}
@@ -1663,26 +2544,35 @@ export default function DashboardPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {revenueItems.map((item, idx) => (
-                              <tr key={idx} style={{ 
-                                borderBottom: '1px solid var(--border)',
-                                background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
-                              }}>
-                                <td style={{ 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
-                                  color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
-                                }}>{item.label}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
-                                <td style={{ 
-                                  textAlign: 'right', 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  color: item.viewDelta >= 0 ? '#22c55e' : '#ef4444'
-                                }}>{formatCurrency(item.viewDelta)}</td>
-                              </tr>
+                            {revenueGroups.map((group) => (
+                              <Fragment key={`revenue-group-${group.name}`}>
+                                <tr style={{ background: 'rgba(15, 23, 42, 0.04)' }}>
+                                  <td colSpan={4} style={{ padding: '7px 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                                    {group.name}
+                                  </td>
+                                </tr>
+                                {group.items.map((item, idx) => (
+                                  <tr key={`revenue-item-${group.name}-${item.label}-${idx}`} style={{ 
+                                    borderBottom: '1px solid var(--border)',
+                                    background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
+                                  }}>
+                                    <td style={{ 
+                                      padding: '8px 16px', 
+                                      fontSize: 13,
+                                      fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                      color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
+                                    }}>{item.label}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
+                                    <td style={{ 
+                                      textAlign: 'right', 
+                                      padding: '8px 16px', 
+                                      fontSize: 13,
+                                      color: item.viewDelta >= 0 ? '#22c55e' : '#ef4444'
+                                    }}>{formatCurrency(item.viewDelta)}</td>
+                                  </tr>
+                                ))}
+                              </Fragment>
                             ))}
                           </tbody>
                           <tfoot>
@@ -1733,10 +2623,20 @@ export default function DashboardPage() {
                           <thead>
                             <tr style={{ background: 'rgba(239, 68, 68, 0.04)' }}>
                               <th 
-                                onClick={() => setExpenseSort(s => ({ col: 'label', dir: s.col === 'label' && s.dir === 'asc' ? 'desc' : 'asc' }))}
+                                onClick={() =>
+                                  setExpenseSort((s) =>
+                                    s.col === 'fs'
+                                      ? { col: 'label', dir: 'asc' }
+                                      : s.col === 'label' && s.dir === 'asc'
+                                        ? { col: 'label', dir: 'desc' }
+                                        : { col: 'fs', dir: 'asc' }
+                                  )
+                                }
                                 style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
                               >
-                                Item {expenseSort.col === 'label' && (expenseSort.dir === 'asc' ? '↑' : '↓')}
+                                Item
+                                {expenseSort.col === 'label' && ` ${expenseSort.dir === 'asc' ? '↑' : '↓'}`}
+                                {expenseSort.col === 'fs' && ' • FS'}
                               </th>
                               <th 
                                 onClick={() => setExpenseSort(s => ({ col: 'actual', dir: s.col === 'actual' && s.dir === 'desc' ? 'asc' : 'desc' }))}
@@ -1759,26 +2659,35 @@ export default function DashboardPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {expenseItems.map((item, idx) => (
-                              <tr key={idx} style={{ 
-                                borderBottom: '1px solid var(--border)',
-                                background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
-                              }}>
-                                <td style={{ 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
-                                  color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
-                                }}>{item.label}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
-                                <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
-                                <td style={{ 
-                                  textAlign: 'right', 
-                                  padding: '8px 16px', 
-                                  fontSize: 13,
-                                  color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444'
-                                }}>{formatCurrency(item.viewDelta)}</td>
-                              </tr>
+                            {expenseGroups.map((group) => (
+                              <Fragment key={`expense-group-${group.name}`}>
+                                <tr style={{ background: 'rgba(15, 23, 42, 0.04)' }}>
+                                  <td colSpan={4} style={{ padding: '7px 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                                    {group.name}
+                                  </td>
+                                </tr>
+                                {group.items.map((item, idx) => (
+                                  <tr key={`expense-item-${group.name}-${item.label}-${idx}`} style={{ 
+                                    borderBottom: '1px solid var(--border)',
+                                    background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
+                                  }}>
+                                    <td style={{ 
+                                      padding: '8px 16px', 
+                                      fontSize: 13,
+                                      fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                      color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
+                                    }}>{item.label}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
+                                    <td style={{ 
+                                      textAlign: 'right', 
+                                      padding: '8px 16px', 
+                                      fontSize: 13,
+                                      color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444'
+                                    }}>{formatCurrency(item.viewDelta)}</td>
+                                  </tr>
+                                ))}
+                              </Fragment>
                             ))}
                           </tbody>
                           <tfoot>
@@ -1795,7 +2704,393 @@ export default function DashboardPage() {
                   </div>
                 )}
 
+                {otherItems.length > 0 && (
+                  <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                    <button
+                      onClick={() => setExpandedSections(s => ({ ...s, other: !s.other }))}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '12px 16px',
+                        background: 'rgba(2, 132, 199, 0.08)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        fontSize: 13
+                      }}
+                    >
+                      <span>
+                        <i className="fas fa-layer-group" style={{ marginRight: 8, color: '#0284c7' }}></i>
+                        Other Breakdown ({otherItems.length} items)
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{ fontSize: 12, fontWeight: 500 }}>
+                          {formatCurrency(sumOther)}
+                        </span>
+                        <i className={`fas fa-chevron-${expandedSections.other ? 'up' : 'down'}`} style={{ color: 'var(--text-muted)' }}></i>
+                      </span>
+                    </button>
+                    {expandedSections.other && (
+                      <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: 'rgba(2, 132, 199, 0.04)' }}>
+                              <th
+                                onClick={() =>
+                                  setOtherSort((s) =>
+                                    s.col === 'fs'
+                                      ? { col: 'label', dir: 'asc' }
+                                      : s.col === 'label' && s.dir === 'asc'
+                                        ? { col: 'label', dir: 'desc' }
+                                        : { col: 'fs', dir: 'asc' }
+                                  )
+                                }
+                                style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                              >
+                                Item
+                                {otherSort.col === 'label' && ` ${otherSort.dir === 'asc' ? '↑' : '↓'}`}
+                                {otherSort.col === 'fs' && ' • FS'}
+                              </th>
+                              <th
+                                onClick={() => setOtherSort(s => ({ col: 'actual', dir: s.col === 'actual' && s.dir === 'desc' ? 'asc' : 'desc' }))}
+                                style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                              >
+                                Actual {otherSort.col === 'actual' && (otherSort.dir === 'asc' ? '↑' : '↓')}
+                              </th>
+                              <th
+                                onClick={() => setOtherSort(s => ({ col: 'budget', dir: s.col === 'budget' && s.dir === 'desc' ? 'asc' : 'desc' }))}
+                                style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                              >
+                                Budget {otherSort.col === 'budget' && (otherSort.dir === 'asc' ? '↑' : '↓')}
+                              </th>
+                              <th
+                                onClick={() => setOtherSort(s => ({ col: 'variance', dir: s.col === 'variance' && s.dir === 'desc' ? 'asc' : 'desc' }))}
+                                style={{ textAlign: 'right', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
+                              >
+                                Variance {otherSort.col === 'variance' && (otherSort.dir === 'asc' ? '↑' : '↓')}
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {otherGroups.map((group) => (
+                              <Fragment key={`other-group-${group.name}`}>
+                                <tr style={{ background: 'rgba(15, 23, 42, 0.04)' }}>
+                                  <td colSpan={4} style={{ padding: '7px 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                                    {group.name}
+                                  </td>
+                                </tr>
+                                {group.items.map((item, idx) => (
+                                  <tr key={`other-item-${group.name}-${item.label}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <td style={{ padding: '8px 16px', fontSize: 13 }}>{item.label}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
+                                    <td style={{
+                                      textAlign: 'right',
+                                      padding: '8px 16px',
+                                      fontSize: 13,
+                                      color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444'
+                                    }}>{formatCurrency(item.viewDelta)}</td>
+                                  </tr>
+                                ))}
+                              </Fragment>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ background: 'rgba(2, 132, 199, 0.12)', fontWeight: 600 }}>
+                              <td style={{ padding: '10px 16px', fontSize: 13 }}>Total Other</td>
+                              <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}>{formatCurrency(sumOther)}</td>
+                              <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(otherItems.reduce((acc, x) => acc + (x.viewBudget || 0), 0))}</td>
+                              <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: 13 }}></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
 
+
+              </div>
+            </div>
+          )}
+
+          {revenueFlowModel && (
+            <div className="card revenue-flow-card" style={{ marginBottom: 20 }}>
+              <div className="card-header">
+                <div className="card-title"><i className="fas fa-arrow-right-arrow-left"></i> Revenue Flow Map</div>
+                <div className="revenue-flow-header-tools">
+                  <div className="revenue-flow-level-control">
+                    <span>Min</span>
+                    <button
+                      type="button"
+                      onClick={() => adjustFlowMinLevels(-1)}
+                      disabled={flowMinLevels <= flowLevelBounds.min}
+                      aria-label="Decrease minimum categories"
+                    >
+                      -
+                    </button>
+                    <strong>{flowMinLevels}</strong>
+                    <button
+                      type="button"
+                      onClick={() => adjustFlowMinLevels(1)}
+                      disabled={flowMinLevels >= flowLevelBounds.max}
+                      aria-label="Increase minimum categories"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="revenue-flow-level-control">
+                    <span>Max</span>
+                    <button
+                      type="button"
+                      onClick={() => adjustFlowMaxLevels(-1)}
+                      disabled={flowMaxLevels <= flowLevelBounds.min}
+                      aria-label="Decrease maximum categories"
+                    >
+                      -
+                    </button>
+                    <strong>{flowMaxLevels}</strong>
+                    <button
+                      type="button"
+                      onClick={() => adjustFlowMaxLevels(1)}
+                      disabled={flowMaxLevels >= flowLevelBounds.max}
+                      aria-label="Increase maximum categories"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="card-tag">{lineItemScopeLabel}</div>
+                </div>
+              </div>
+              <div className="card-body revenue-flow-body">
+                <div className="revenue-flow-metrics">
+                  <div className="revenue-flow-metric">
+                    <div className="revenue-flow-metric-label">Total revenue</div>
+                    <div className="revenue-flow-metric-value">{formatCurrencyFull(revenueFlowModel.revenueTotal)}</div>
+                  </div>
+                  <div className="revenue-flow-metric">
+                    <div className="revenue-flow-metric-label">Operating load</div>
+                    <div className="revenue-flow-metric-value">
+                      {revenueFlowModel.burnRatePct === null ? '—' : `${revenueFlowModel.burnRatePct.toFixed(1)}%`}
+                    </div>
+                    <div className="revenue-flow-metric-sub">{formatCurrencyFull(revenueFlowModel.operatingExpensesActual)}</div>
+                  </div>
+                  <div className="revenue-flow-metric">
+                    <div className="revenue-flow-metric-label">NOI margin</div>
+                    <div className={`revenue-flow-metric-value ${revenueFlowModel.noiActual >= 0 ? 'is-positive' : 'is-negative'}`}>
+                      {revenueFlowModel.noiMarginPct === null ? '—' : `${revenueFlowModel.noiMarginPct.toFixed(1)}%`}
+                    </div>
+                    <div className="revenue-flow-metric-sub">{formatCurrencyFull(revenueFlowModel.noiActual)}</div>
+                  </div>
+                  <div className="revenue-flow-metric">
+                    <div className="revenue-flow-metric-label">Net margin</div>
+                    <div className={`revenue-flow-metric-value ${typeof revenueFlowModel.netMarginPct === 'number' && revenueFlowModel.netMarginPct >= 0 ? 'is-positive' : 'is-negative'}`}>
+                      {typeof revenueFlowModel.netMarginPct === 'number' ? `${revenueFlowModel.netMarginPct.toFixed(1)}%` : '—'}
+                    </div>
+                    <div className="revenue-flow-metric-sub">{formatCurrencyFull(revenueFlowModel.netIncomeActual)}</div>
+                  </div>
+                  <div className="revenue-flow-metric">
+                    <div className="revenue-flow-metric-label">Top source</div>
+                    <div className="revenue-flow-metric-value">
+                      {revenueFlowModel.topSource ? compactFlowLabel(normalizeFlowLabel(revenueFlowModel.topSource.label), 30) : '—'}
+                    </div>
+                    <div className="revenue-flow-metric-sub">
+                      {revenueFlowModel.topSource
+                        ? `${formatCurrencyFull(revenueFlowModel.topSource.value)} • ${formatFlowPct(revenueFlowModel.topSource.value, Math.max(revenueFlowModel.revenueTotal, 1)) ?? '—'}`
+                        : '—'}
+                    </div>
+                  </div>
+                  <div className="revenue-flow-metric">
+                    <div className="revenue-flow-metric-label">Top expense driver</div>
+                    <div className="revenue-flow-metric-value">
+                      {revenueFlowModel.topExpense ? compactFlowLabel(normalizeFlowLabel(revenueFlowModel.topExpense.label), 30) : '—'}
+                    </div>
+                    <div className="revenue-flow-metric-sub">
+                      {revenueFlowModel.topExpense
+                        ? `${formatCurrencyFull(revenueFlowModel.topExpense.value)} • ${formatFlowPct(revenueFlowModel.topExpense.value, Math.max(revenueFlowModel.operatingExpensesActual, 1)) ?? '—'}`
+                        : '—'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="revenue-flow-scroll">
+                  <svg
+                    className="revenue-flow-svg"
+                    viewBox={`0 0 ${revenueFlowModel.chartWidth} ${revenueFlowModel.chartHeight}`}
+                    role="img"
+                    aria-label="Revenue flow from categories to operating expenses and NOI"
+                  >
+                    <defs>
+                      <linearGradient id="revenue-flow-surface" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#f8fbff" />
+                        <stop offset="100%" stopColor="#eef4ff" />
+                      </linearGradient>
+                      <filter id="revenue-flow-soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="2" stdDeviation="2.6" floodColor="rgba(15, 23, 42, 0.18)" />
+                      </filter>
+                      {revenueFlowModel.links.map((link, idx) => {
+                        const sourceNode = revenueFlowNodeMap?.get(link.source)
+                        const targetNode = revenueFlowNodeMap?.get(link.target)
+                        return (
+                          <linearGradient key={`flow-grad-${idx}`} id={`flow-grad-${idx}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor={sourceNode?.color ?? link.color} />
+                            <stop offset="100%" stopColor={targetNode?.color ?? link.color} />
+                          </linearGradient>
+                        )
+                      })}
+                    </defs>
+
+                    <rect
+                      x={0}
+                      y={0}
+                      width={revenueFlowModel.chartWidth}
+                      height={revenueFlowModel.chartHeight}
+                      rx={18}
+                      fill="url(#revenue-flow-surface)"
+                    />
+
+                    {revenueFlowModel.lanes.map((lane) => (
+                      <rect
+                        key={lane.id}
+                        x={lane.x}
+                        y={lane.y}
+                        width={lane.w}
+                        height={lane.h}
+                        rx={14}
+                        fill={lane.fill}
+                      />
+                    ))}
+
+                    {revenueFlowModel.stages.map((stage) => (
+                      <text key={stage.label} x={stage.x} y={28} textAnchor="middle" className="revenue-flow-stage-label">
+                        {stage.label}
+                      </text>
+                    ))}
+
+                    {revenueFlowModel.links.map((link, idx) => (
+                      <path
+                        key={`${link.source}-${link.target}-${idx}`}
+                        d={link.path}
+                        stroke={`url(#flow-grad-${idx})`}
+                        strokeOpacity={0.52}
+                        strokeWidth={link.width}
+                        fill="none"
+                        strokeLinecap="round"
+                      >
+                        <title>{`${revenueFlowNodeMap?.get(link.source)?.label ?? link.source} → ${revenueFlowNodeMap?.get(link.target)?.label ?? link.target}: ${formatCurrencyFull(link.value)}${
+                          (() => {
+                            if (!revenueFlowModel) return ''
+                            const sourceNode = revenueFlowNodeMap?.get(link.source)
+                            const targetNode = revenueFlowNodeMap?.get(link.target)
+                            if (sourceNode?.column === 0) {
+                              const pct = revenueFlowModel.revenueTotal > 0 ? (link.value / revenueFlowModel.revenueTotal) * 100 : null
+                              return typeof pct === 'number' ? ` (${formatFlowPct(link.value, revenueFlowModel.revenueTotal)} of revenue)` : ''
+                            }
+                            if (link.source === 'operating-expenses' && targetNode) {
+                              const pct = revenueFlowModel.operatingExpensesActual > 0
+                                ? (targetNode.displayValue / revenueFlowModel.operatingExpensesActual) * 100
+                                : null
+                              return typeof pct === 'number' ? ` (${formatFlowPct(targetNode.displayValue, revenueFlowModel.operatingExpensesActual)} of opex)` : ''
+                            }
+                            if (link.source === 'total-revenue') {
+                              const pct = revenueFlowModel.revenueTotal > 0 ? (link.value / revenueFlowModel.revenueTotal) * 100 : null
+                              return typeof pct === 'number' ? ` (${formatFlowPct(link.value, revenueFlowModel.revenueTotal)} of revenue)` : ''
+                            }
+                            if (link.source === 'noi' && targetNode) {
+                              const pct = revenueFlowModel.revenueTotal > 0
+                                ? (targetNode.displayValue / revenueFlowModel.revenueTotal) * 100
+                                : null
+                              return typeof pct === 'number' ? ` (${formatFlowPct(targetNode.displayValue, revenueFlowModel.revenueTotal)} net margin)` : ''
+                            }
+                            return ''
+                          })()
+                        }`}</title>
+                      </path>
+                    ))}
+
+                    {revenueFlowModel.nodes.map((node) => {
+                      const nodeLabel = compactFlowLabel(
+                        normalizeFlowLabel(node.label),
+                        node.column === 3 ? 30 : node.column === 0 ? 28 : 24
+                      )
+                      const labelBox = revenueFlowLabelLayout.get(node.id)
+                      const isLabelOnRight = labelBox ? labelBox.x >= node.x : true
+                      const connectorY = node.y + node.h / 2
+                      const connectorStartX = isLabelOnRight
+                        ? node.x + node.w / 2 + 3
+                        : node.x - node.w / 2 - 3
+                      const connectorEndX = labelBox
+                        ? isLabelOnRight
+                          ? labelBox.x
+                          : labelBox.x + labelBox.w
+                        : connectorStartX
+                      const shareBase =
+                        node.column === 3
+                          ? revenueFlowModel.operatingExpensesActual
+                          : revenueFlowModel.revenueTotal
+                      const shareSuffix =
+                        node.id === 'noi'
+                          ? 'NOI'
+                          : node.id === 'net-income'
+                            ? 'net'
+                            : node.column === 3
+                              ? 'opex'
+                              : 'rev'
+                      const shareText = formatFlowPct(node.displayValue, Math.max(shareBase, 1))
+                      const valueLine = shareText
+                        ? `${formatCurrency(node.displayValue)} • ${shareText} ${shareSuffix}`
+                        : formatCurrency(node.displayValue)
+                      const labelX = (labelBox?.x ?? 0) + 11
+                      const labelY = (labelBox?.y ?? 0) + 21
+                      return (
+                        <g key={node.id}>
+                          <rect
+                            x={node.x - node.w / 2}
+                            y={node.y}
+                            width={node.w}
+                            height={node.h}
+                            rx={node.w / 2}
+                            fill={node.color}
+                            opacity={0.96}
+                            filter="url(#revenue-flow-soft-shadow)"
+                          />
+                          <circle cx={node.x} cy={node.y + node.h / 2} r={2.5} fill="#ffffff" opacity={0.9} />
+                          {labelBox ? (
+                            <>
+                              <line
+                                x1={connectorStartX}
+                                y1={connectorY}
+                                x2={connectorEndX}
+                                y2={labelBox.y + labelBox.h / 2}
+                                className="revenue-flow-label-link"
+                              />
+                              <rect
+                                x={labelBox.x}
+                                y={labelBox.y}
+                                width={labelBox.w}
+                                height={labelBox.h}
+                                rx={10}
+                                className="revenue-flow-label-box"
+                              />
+                            </>
+                          ) : null}
+                          <text x={labelX} y={labelY} textAnchor="start" className="revenue-flow-node-label">
+                            {nodeLabel}
+                          </text>
+                          <text x={labelX} y={labelY + 16} textAnchor="start" className="revenue-flow-node-value">
+                            {valueLine}
+                          </text>
+                        </g>
+                      )
+                    })}
+                  </svg>
+                </div>
+
+                <div className="revenue-flow-footnote">
+                  Categories come from bold FS section headings and remain FS-sorted. Levels are clamped to Min {revenueFlowModel.flowMinLevels} / Max {revenueFlowModel.flowMaxLevels}. Categories below {revenueFlowModel.tinyFlowThresholdPct.toFixed(0)}% are folded into Other. Below-NOI items: {formatCurrencyFull(revenueFlowModel.belowNoiActual)}.
+                </div>
               </div>
             </div>
           )}
@@ -2212,20 +3507,23 @@ export default function DashboardPage() {
                         }}></i>
                         {insight.title}
                       </div>
-                      {insight.metric && (
-                        <span style={{
-                          background: 'var(--bg)',
-                          padding: '4px 10px',
-                          borderRadius: 6,
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: 
-                            insight.type === 'positive' ? 'var(--success)' :
-                            insight.type === 'negative' ? 'var(--danger)' : 'var(--text-main)'
-                        }}>
-                          {insight.metric}
-                        </span>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className="ai-insight-category">{insight.category}</span>
+                        {insight.metric && (
+                          <span style={{
+                            background: 'var(--bg)',
+                            padding: '4px 10px',
+                            borderRadius: 6,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color:
+                              insight.type === 'positive' ? 'var(--success)' :
+                              insight.type === 'negative' ? 'var(--danger)' : 'var(--text-main)'
+                          }}>
+                            {insight.metric}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="ai-insight-text">{insight.description}</div>
                     {insight.recommendation && (

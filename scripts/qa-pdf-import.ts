@@ -10,17 +10,39 @@ function pretty(obj: unknown) {
 }
 
 async function main() {
-  const monthKey = 'nov-2025'
+  // Use a dedicated QA month key so this script never overwrites real imported months.
+  const monthKey = 'nov-2099'
 
-  // Synthetic PDF texts that match the regex extraction patterns.
-  // These mimic the consistent monthly PDF format you described.
+  // Synthetic FS text with realistic section headers + known noise patterns.
   const financialStatementsText = `
     MONTHLY MANAGEMENT REPORT
 
-    NET OPERATING INCOME 77,438 (26,983) 104,421
+    INCOME
+    MAINTENANCE INCOME 500,000 490,000 10,000
+    LAUNDRY INCOME 12,500 10,000 2,500
+    OTHER TENANT INCOME 2,500 5,000 (2,500)
+    INTEREST INCOME - CAPITAL 24,000 20,000 4,000
+    CORPORATE TAX REFUNDS 10,000 - 10,000
+    TOTAL REVENUES 515,000 505,000 10,000
 
+    OPERATING EXPENSES
+    PAYROLL 120,000 115,000 5,000
     REPAIRS AND MAINTENANCE 12,000 10,000 2,000
     UTILITIES 8,500 9,000 (500)
+    CAP IMP/LOBBY 50,000 45,000 5,000
+    ESCROW DEPOSITS 20,000 20,000 -
+    A/P OVER 30 DAYS 123,456 100,000 23,456
+    METROPOLITAN / 45,000 40,000 5,000
+    2104 B12 JOHN DOE 4,000 3,000 1,000
+
+    DEBT SERVICE
+    MORTGAGE PRINCIPAL 30,000 28,000 2,000
+    CAPITAL RESERVE TRANSFER 10,000 10,000 -
+    DEPRECIATION 15,000 15,000 -
+
+    TOTAL OPERATING EXPENSES 140,500 134,000 6,500
+    NET OPERATING INCOME 374,500 371,000 3,500
+    NET INCOME 283,500 276,000 7,500
 
     TOTAL OPERATING ACCOUNTS 1,234,567$
     TOTAL ESCROW ACCOUNTS 234,567$
@@ -102,6 +124,54 @@ async function main() {
   assert(typeof result.data.bankReconciliation?.outstandingChecks === 'number', 'QA FAIL: Outstanding checks not extracted')
   assert(Boolean(result.data.incomeStatement?.lineItems?.length), 'QA FAIL: Budget line items not extracted')
   assert(Boolean(result.data.notes?.some((n) => n.includes('A. FIRE PROTECTION'))), 'QA FAIL: FS notes not extracted')
+
+  const lineItems = result.data.incomeStatement?.lineItems ?? []
+  assert(lineItems.length > 0, 'QA FAIL: line items missing after extraction')
+
+  // QA: ensure known bad labels are rejected from the P&L breakdown.
+  const suspiciousPatterns = [
+    /METROPOLITAN\s*\/?/i,
+    /\bIDB\s*\/?/i,
+    /A\/P\s+OVER\s+\d+\s+DAYS/i,
+    /\b\d{3,}\s+[A-Z]\d{1,3}\b/i,
+  ]
+  for (const item of lineItems) {
+    const isSuspicious = suspiciousPatterns.some((re) => re.test(item.label))
+    assert(!isSuspicious, `QA FAIL: suspicious line item leaked into extracted breakdown: "${item.label}"`)
+  }
+
+  // QA: ensure "other" section rows are classified correctly.
+  const otherItems = lineItems.filter((x) => x.kind === 'other')
+  assert(otherItems.length > 0, 'QA FAIL: expected at least one "other" line item')
+  assert(
+    otherItems.some((x) => /MORTGAGE PRINCIPAL|CAPITAL RESERVE TRANSFER|DEPRECIATION/i.test(x.label)),
+    'QA FAIL: debt-service / below-NOI rows were not classified as "other"'
+  )
+  assert(
+    otherItems.some((x) => /CAP IMP\/LOBBY|ESCROW DEPOSITS|INTEREST INCOME - CAPITAL|CORPORATE TAX REFUNDS/i.test(x.label)),
+    'QA FAIL: expected non-operating capital/escrow/tax-refund rows to classify as "other"'
+  )
+
+  // QA: parsed revenue/expense sums should stay within a small tolerance of extracted totals.
+  const revenueTotal = result.data.incomeStatement?.totalRevenue?.actual
+  const expensesTotal = result.data.incomeStatement?.totalOperatingExpenses?.actual
+  const revenueSum = lineItems.filter((x) => x.kind === 'revenue').reduce((acc, x) => acc + x.actual, 0)
+  const expenseSum = lineItems.filter((x) => x.kind === 'expense').reduce((acc, x) => acc + x.actual, 0)
+
+  if (typeof revenueTotal === 'number') {
+    const tol = Math.max(1, Math.abs(revenueTotal) * 0.02)
+    assert(
+      Math.abs(revenueSum - revenueTotal) <= tol,
+      `QA FAIL: revenue line-item sum (${revenueSum}) is outside tolerance vs totalRevenue.actual (${revenueTotal})`
+    )
+  }
+  if (typeof expensesTotal === 'number') {
+    const tol = Math.max(1, Math.abs(expensesTotal) * 0.02)
+    assert(
+      Math.abs(expenseSum - expensesTotal) <= tol,
+      `QA FAIL: expense line-item sum (${expenseSum}) is outside tolerance vs totalOperatingExpenses.actual (${expensesTotal})`
+    )
+  }
 
   // Persist + reload
   await setStoredMonthData(monthKey, result.data)

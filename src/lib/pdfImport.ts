@@ -18,7 +18,10 @@ export type PdfImportExtracted = {
     totalOperatingExpenses?: { actual: number; budget: number; variance: number }
     lineItems?: Array<{
       label: string
-      kind: 'revenue' | 'expense'
+      kind: 'revenue' | 'expense' | 'other'
+      category?: string
+      categoryOrder?: number
+      fsOrder?: number
       actual: number
       budget: number
       delta: number
@@ -300,10 +303,13 @@ function parseMoneyStrict(raw: string): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-type BudgetLineItemKind = 'revenue' | 'expense'
+type BudgetLineItemKind = 'revenue' | 'expense' | 'other'
 type BudgetLineItem = {
   label: string
   kind: BudgetLineItemKind
+  category?: string
+  categoryOrder?: number
+  fsOrder?: number
   actual: number
   budget: number
   delta: number
@@ -312,22 +318,99 @@ type BudgetLineItem = {
   ytdDelta?: number
 }
 
+const DEFAULT_FS_CATEGORY_BY_KIND: Record<BudgetLineItemKind, string> = {
+  revenue: 'Revenues',
+  expense: 'Operating Expenses',
+  other: 'Other',
+}
+
+function inferFsCategoryFromLabel(
+  label: string,
+  kind: BudgetLineItemKind,
+  activeCategory: string | null
+): string {
+  if (activeCategory) {
+    const a = activeCategory.toLowerCase()
+    const fitsRevenue = /(revenue|income|tenant|misc)/.test(a)
+    const fitsExpense =
+      /(expense|payroll|utilities|service contracts|repairs|professional|administrative|tax)/.test(a)
+    const fitsOther = /(debt service|other income|capital expenditures?|non-operating|below noi|other)/.test(a)
+    if ((kind === 'revenue' && fitsRevenue) || (kind === 'expense' && fitsExpense) || (kind === 'other' && fitsOther)) {
+      return activeCategory
+    }
+  }
+
+  const l = label.toLowerCase()
+  if (kind === 'revenue') {
+    if (/(maintenance|rental|rent)/.test(l)) return 'Revenues'
+    return 'Other Tenant/Misc Income'
+  }
+
+  if (kind === 'other') {
+    if (/(capital expenditure|capital improvement|cap imp|cap impr)/.test(l)) return 'Capital Expenditures'
+    if (/(interest income|tax refund|trnsfer from reserve|transfer from reserve|r\/e assessment)/.test(l)) return 'Other Income'
+    return 'Debt Service'
+  }
+
+  if (/(payroll|bonus|workers comp|disability|pension|hospitalization|uniform|labor|meal allowance)/.test(l)) {
+    return 'Payroll & Related Costs'
+  }
+  if (/(electric|gas|oil|water|sewer|cable|telephone)/.test(l)) return 'Utilities'
+  if (/(elevator contract|sprinkler|exterminating|landscape|building link|fire protection)/.test(l)) {
+    return 'Service Contracts'
+  }
+  if (
+    /(repair|repairs|painting|plastering|bathroom|floor tiles|glass|windows|supplies|intercom|doors|locks|incinerator|compactor|security|carbon monoxide|smoke detector|water treatment|pump|roof|miscellaneous repairs)/.test(
+      l
+    )
+  ) {
+    return 'Repairs & Maintenance'
+  }
+  if (/(management fees|legal fees|audit fees|architect|engineer|consultant|professional fees)/.test(l)) {
+    return 'Professional Fees'
+  }
+  if (/(real estate taxes|franchise tax|corp tax)/.test(l)) return 'Property & Other Taxes'
+  if (/(insurance|dues|office expenses|filing fees|violations|administrative|leased office equip|licenses|permits|subscriptions|environmental)/.test(l)) {
+    return 'Administrative & General'
+  }
+
+  return DEFAULT_FS_CATEGORY_BY_KIND.expense
+}
+
 function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | null): BudgetLineItemKind {
   const l = label.toLowerCase()
-  
-  // If we have a section context from the PDF headings, trust it first.
-  // This ensures items under "OTHER TENANT/MISC INCOME" stay as revenue
-  // even if they have ambiguous keywords like "fees" or "repairs".
-  if (section) {
-    return section
-  }
-  
-  // Without section context, use keyword hints to classify
-  // Explicit maintenance is revenue (common in co-op/condo)
-  if (l.includes('maintenance')) return 'revenue'
+
+  // Strong below-NOI / non-operating hints should override section context.
+  // Some FS exports keep these rows under broad income/expense table blocks.
+  if (/(interest income).*(capital)|(capital).*(interest income)/.test(l)) return 'other'
+  if (/(corporate\s+tax\s+refund|tax\s+refund)/.test(l)) return 'other'
+
   // Explicit interest lines
   if (l.includes('interest income')) return 'revenue'
   if (l.includes('interest expense')) return 'expense'
+
+  const otherHints = [
+    'debt service',
+    'mortgage principal',
+    'principal payments',
+    'capital expenditure',
+    'capital project',
+    'capital reserve',
+    'reserve transfer',
+    'trnsfer from reserve',
+    'transfer from reserve',
+    'non operating',
+    'below noi',
+    'below the line',
+    'amortization',
+    'depreciation',
+    'capital improvement',
+    'cap imp',
+    'cap impr',
+    'escrow deposit',
+    'escrow deposits',
+    'reserve deposit',
+  ]
 
   const revenueHints = [
     'revenue',
@@ -378,8 +461,19 @@ function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | nu
     'income tax',
   ]
 
+  const isOther = otherHints.some((h) => l.includes(h))
   const isRevenue = revenueHints.some((h) => l.includes(h))
   const isExpense = expenseHints.some((h) => l.includes(h))
+
+  if (isOther) return 'other'
+
+  // After strong "other" checks, trust section context.
+  if (section) {
+    return section
+  }
+
+  // Without section context, treat explicit maintenance income as revenue.
+  if (l.includes('maintenance income')) return 'revenue'
 
   // Fee lines can be revenue (late fees, application fees) OR expenses (legal fees, licensing fees, bank fees).
   if (l.includes('fee') || l.includes('fees')) {
@@ -396,11 +490,57 @@ function inferBudgetLineItemKind(label: string, section: BudgetLineItemKind | nu
   return section === 'revenue' ? 'revenue' : 'expense'
 }
 
-function extractBudgetLineItemsFromText(text: string) {
+function extractBudgetLineItemsFromText(
+  text: string,
+  opts?: {
+    totalRevenueActual?: number
+    totalExpensesActual?: number
+    warnings?: string[]
+  }
+) {
   const lines = (text || '').split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean)
   const out: BudgetLineItem[] = []
   let section: BudgetLineItemKind | null = null
+  let activeCategory: string | null = null
   let lastLabelCandidate: string | null = null
+  const fsCategoryOrder = new Map<string, number>()
+  let nextFsCategoryOrder = 0
+
+  const warnings = opts?.warnings
+
+  const sectionStopMarker = (upper: string) =>
+    /\b(NOTES?|BALANCE\s+SHEET|BANK\s+RECONCILIATION|CASH\s+(SUMMARY|PAYMENTS?)|ACCOUNTS?\s+RECEIVABLE|A\/R\b|ASSETS?\b|LIABILITIES?\b|EQUITY\b|STATEMENT\s+OF\s+FINANCIAL\s+POSITION|ANALYSIS\s+OF\s+CHARGES\s+AND\s+COLLECTIONS|PROPERTY\s+UNIT\s+TENANT|GENERAL\s+LEDGER|ACCTS?\s+PAY|ACCOUNTS?\s+PAYABLE|AGING\s+SUMMARY|DATE\s+DESCRIPTION\s+AMOUNT\s+NOTES|ACCT\s+DESCRIPTION\s+DATE\s+NOTES\s+CASH\s+BALANCE|EXPENSE\s+DISTRIBUTION)\b/i.test(
+      upper
+    )
+
+  const hasTooManyDigits = (label: string) => {
+    const digits = (label.match(/\d/g) || []).length
+    return digits > 0 && digits / Math.max(1, label.length) > 0.3
+  }
+
+  const looksLikeUnitLedger = (label: string) => {
+    const u = label.toUpperCase()
+    if (/\b\d{3,}\s+[A-Z]\d{1,3}\b/.test(u)) return true
+    if (/\b[A-Z]\d{1,3}\s+\d{6,}\b/.test(u)) return true
+    if (/\b[A-Z]{2,}\s+[A-Z][A-Z]+/.test(u) && /\d{3,}/.test(u)) return true
+    if (/A\/P\s+OVER\s+\d+\s+DAYS/.test(u)) return true
+    return false
+  }
+
+  const looksLikeBankArtifact = (label: string) => {
+    const u = label.toUpperCase()
+    if (/(METROPOLITAN|STERLING|IDB|BANK|NATIONAL)\s*\/?$/.test(u)) return true
+    if (/\/\s*$/.test(u)) return true
+    if (/\bRESERVE ACCOUNTS?\b/.test(u)) return true
+    return false
+  }
+
+  const hasAbnormalTokenShape = (label: string) => {
+    const parts = label.split(/\s+/).filter(Boolean)
+    if (parts.length > 12) return true
+    const numericish = parts.filter((p) => /[\d$(),.-]/.test(p)).length
+    return numericish >= 4 && !/[A-Za-z]/.test(label.replace(/[\d$(),.\-\s]/g, ''))
+  }
 
   const isNoiseLabel = (label: string) => {
     const u = label.toUpperCase()
@@ -411,6 +551,11 @@ function extractBudgetLineItemsFromText(text: string) {
     if (/(ASSETS?|LIABILITIES?|EQUITY)\b/.test(u)) return true
     if (/(DEPOSITS?\s+IN\s+TRANSIT|OUTSTANDING\s+CHECKS?)\b/.test(u)) return true
     if (/(ACCOUNTS?\s+RECEIVABLE|A\/R)\b/.test(u)) return true
+    if (/(ANALYSIS\s+OF\s+CHARGES\s+AND\s+COLLECTIONS|PROPERTY\s+UNIT\s+TENANT|TOTAL\s+OWED|GENERAL\s+LEDGER|ACCTS?\s+PAY)\b/.test(u)) return true
+    if (looksLikeBankArtifact(u)) return true
+    if (looksLikeUnitLedger(u)) return true
+    if (hasTooManyDigits(u)) return true
+    if (hasAbnormalTokenShape(u)) return true
     return false
   }
 
@@ -422,22 +567,111 @@ function extractBudgetLineItemsFromText(text: string) {
     return s.trim()
   }
 
-  for (const line of lines) {
-    // Skip headers/footers and very short lines.
-    if (line.length < 10) continue
+  const setActiveCategory = (kind: BudgetLineItemKind, rawCategory: string) => {
+    const category = cleanLabel(rawCategory)
+    if (!category) return
+    section = kind
+    activeCategory = category
+    const key = `${kind}:${category.toUpperCase()}`
+    if (!fsCategoryOrder.has(key)) {
+      fsCategoryOrder.set(key, nextFsCategoryOrder++)
+    }
+  }
 
+  const getCategoryOrder = (kind: BudgetLineItemKind, category: string) => {
+    const key = `${kind}:${category.toUpperCase()}`
+    if (!fsCategoryOrder.has(key)) {
+      fsCategoryOrder.set(key, nextFsCategoryOrder++)
+    }
+    return fsCategoryOrder.get(key) ?? 0
+  }
+
+  for (const line of lines) {
     const upper = line.toUpperCase()
+    if (sectionStopMarker(upper)) {
+      section = null
+      activeCategory = null
+      lastLabelCandidate = null
+      continue
+    }
+
     // Section headings to help classify line items
     if (!/[0-9]/.test(line)) {
-      // Revenue section markers - includes "REVENUES", "OTHER TENANT/MISC INCOME", etc.
-      if (/^(INCOME|REVENUES?|OPERATING INCOME|OTHER INCOME|OTHER TENANT|RESIDENTIAL CHARGES|TENANT.*INCOME|MISC.*INCOME)\b/.test(upper)) {
-        section = 'revenue'
+      // Revenue section markers and subsection headings from the FS.
+      if (/^(REVENUES?|INCOME|OPERATING INCOME)\b/.test(upper)) {
+        setActiveCategory('revenue', 'Revenues')
         lastLabelCandidate = null
         continue
       }
-      // Expense section markers
-      if (/^(EXPENSES?|OPERATING EXPENSES?|OTHER EXPENSES?|OTHER OPERATING EXPENSES?|PAYROLL|UTILITIES|REPAIRS|REPAIRS\s*&\s*MAINTENANCE|ADMINISTRATIVE|ADMINISTRATIVE\s*&\s*GENERAL|PROFESSIONAL|PROFESSIONAL\s+FEES|SERVICE\s+CONTRACTS|PARKING\s*\/\s*AMENITIES|PROPERTY\s+AND\s+OTHER\s+TAXES|DEBT\s+SERVICE)\b/.test(upper)) {
-        section = 'expense'
+      if (/^OTHER TENANT\s*\/\s*MISC INCOME\b/.test(upper)) {
+        setActiveCategory('revenue', 'Other Tenant/Misc Income')
+        lastLabelCandidate = null
+        continue
+      }
+      // Non-operating / below-NOI section markers and subsection headings.
+      if (/^DEBT\s+SERVICE\b/.test(upper)) {
+        setActiveCategory('other', 'Debt Service')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^OTHER INCOME\b/.test(upper)) {
+        setActiveCategory('other', 'Other Income')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^CAPITAL\s+EXPENDITURES?\b/.test(upper)) {
+        setActiveCategory('other', 'Capital Expenditures')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^(NON[-\s]?OPERATING|BELOW\s+NOI|BELOW\s+THE\s+LINE|RESERVE\s+TRANSFERS?|TRANSFER\S*|MORTGAGE\s+PRINCIPAL|AMORTIZATION|DEPRECIATION)\b/.test(upper)) {
+        setActiveCategory('other', 'Other')
+        lastLabelCandidate = null
+        continue
+      }
+      // Expense section markers and FS subsection headings.
+      if (/^(EXPENSES?|OPERATING EXPENSES?|OTHER EXPENSES?|OTHER OPERATING EXPENSES?)\b/.test(upper)) {
+        setActiveCategory('expense', 'Operating Expenses')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^PAYROLL(?:\s*&\s*RELATED\s*COSTS?)?\b/.test(upper)) {
+        setActiveCategory('expense', 'Payroll & Related Costs')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^UTILITIES\b/.test(upper)) {
+        setActiveCategory('expense', 'Utilities')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^SERVICE\s+CONTRACTS?\b/.test(upper)) {
+        setActiveCategory('expense', 'Service Contracts')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^REPAIRS?\s*&\s*MAINTENANCE\b/.test(upper)) {
+        setActiveCategory('expense', 'Repairs & Maintenance')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^(PROFESSIONAL|PROFESSIONAL\s+FEES)\b/.test(upper)) {
+        setActiveCategory('expense', 'Professional Fees')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^ADMINISTRATIVE(?:\s*&\s*GENERAL)?\b/.test(upper)) {
+        setActiveCategory('expense', 'Administrative & General')
+        lastLabelCandidate = null
+        continue
+      }
+      if (/^PROPERTY\s+AND\s+OTHER\s+TAXES\b/.test(upper)) {
+        setActiveCategory('expense', 'Property & Other Taxes')
+        lastLabelCandidate = null
+        continue
+      }
+
+      if (/^(BUDGET\s+COMPARISON|MONTHLY\s+MANAGEMENT\s+REPORT|TOTAL|EXPENSE\s+DISTRIBUTION)\b/.test(upper)) {
         lastLabelCandidate = null
         continue
       }
@@ -445,6 +679,7 @@ function extractBudgetLineItemsFromText(text: string) {
       const candidate = cleanLabel(line)
       if (
         candidate &&
+        section &&
         /[A-Za-z]/.test(candidate) &&
         !/^(TOTAL|SUBTOTAL|GRAND TOTAL)\b/i.test(candidate) &&
         !/NET OPERATING INCOME/i.test(candidate) &&
@@ -454,6 +689,12 @@ function extractBudgetLineItemsFromText(text: string) {
       }
       continue
     }
+
+    // Skip very short numeric lines.
+    if (line.length < 10) continue
+
+    // Require active P&L section to capture values. This avoids bank/ledger/table noise.
+    if (!section) continue
 
     const tokens = line.split(' ')
     const moneyTokens: Array<{ idx: number; tok: string }> = []
@@ -467,6 +708,9 @@ function extractBudgetLineItemsFromText(text: string) {
       }
     }
     if (moneyTokens.length < 3) continue
+    // Guard against cross-tab rows (e.g., 12-month matrices or account ledgers)
+    // that contain many numeric columns and are not single-line P&L entries.
+    if (moneyTokens.length > 8) continue
 
     const pickTriple = (start: number) => {
       for (let j = start; j <= moneyTokens.length - 3; j++) {
@@ -506,11 +750,20 @@ function extractBudgetLineItemsFromText(text: string) {
     if (!/[A-Za-z]/.test(label)) continue
     if (/^(TOTAL|SUBTOTAL|GRAND TOTAL)\b/i.test(label)) continue
     if (/NET OPERATING INCOME/i.test(label)) continue
+    if (/^NET INCOME\b/i.test(label)) continue
     if (isNoiseLabel(label)) continue
+
+    const kind = inferBudgetLineItemKind(label, section)
+    const fsCategory = inferFsCategoryFromLabel(label, kind, activeCategory)
+    const categoryOrder = getCategoryOrder(kind, fsCategory)
+    const fsOrder = out.length
 
     out.push({
       label,
-      kind: inferBudgetLineItemKind(label, section),
+      kind,
+      category: fsCategory,
+      categoryOrder,
+      fsOrder,
       actual: picked.actual,
       budget: picked.budget,
       delta: picked.delta,
@@ -528,14 +781,59 @@ function extractBudgetLineItemsFromText(text: string) {
   // Deduplicate by label, keeping item with YTD data if available
   const deduped = Array.from(
     out.reduce((map, item) => {
-      const existing = map.get(item.label)
+      const key = `${item.kind}:${item.category || ''}:${item.label}`.toLowerCase().replace(/\s+/g, ' ').trim()
+      const existing = map.get(key)
       if (!existing || (item.ytdActual !== undefined && existing.ytdActual === undefined)) {
-        map.set(item.label, item)
+        map.set(key, item)
       }
       return map
     }, new Map<string, BudgetLineItem>()).values()
   )
-  return deduped.length ? deduped : null
+
+  const revTotal = typeof opts?.totalRevenueActual === 'number' ? Math.abs(opts.totalRevenueActual) : null
+  const expTotal = typeof opts?.totalExpensesActual === 'number' ? Math.abs(opts.totalExpensesActual) : null
+
+  const filtered = deduped.filter((item) => {
+    const basis =
+      item.kind === 'revenue' ? revTotal : item.kind === 'expense' ? expTotal : Math.max(revTotal ?? 0, expTotal ?? 0)
+    if (!basis || basis === 0) return true
+
+    const valueLimit = Math.max(1_000_000, basis * 1.5)
+    const budgetLimit = Math.max(1_000_000, basis * 1.5)
+    const tooLarge = Math.abs(item.actual) > valueLimit || Math.abs(item.budget) > budgetLimit
+    if (tooLarge) {
+      warnings?.push(`Dropped suspicious line item "${item.label}" (${item.kind}) due to outlier amount.`)
+      return false
+    }
+    return true
+  })
+
+  if (filtered.length) {
+    const sumRevenue = filtered.filter((x) => x.kind === 'revenue').reduce((acc, x) => acc + x.actual, 0)
+    const sumExpense = filtered.filter((x) => x.kind === 'expense').reduce((acc, x) => acc + x.actual, 0)
+
+    if (typeof revTotal === 'number' && revTotal > 0) {
+      const revenueGap = Math.abs(sumRevenue - revTotal)
+      const revenueTolerance = Math.max(25_000, revTotal * 0.4)
+      if (revenueGap > revenueTolerance) {
+        warnings?.push(
+          `Revenue line-item sum (${Math.round(sumRevenue).toLocaleString()}) differs materially from total revenue (${Math.round(revTotal).toLocaleString()}).`
+        )
+      }
+    }
+
+    if (typeof expTotal === 'number' && expTotal > 0) {
+      const expenseGap = Math.abs(sumExpense - expTotal)
+      const expenseTolerance = Math.max(25_000, expTotal * 0.4)
+      if (expenseGap > expenseTolerance) {
+        warnings?.push(
+          `Expense line-item sum (${Math.round(sumExpense).toLocaleString()}) differs materially from total operating expenses (${Math.round(expTotal).toLocaleString()}).`
+        )
+      }
+    }
+  }
+
+  return filtered.length ? filtered : null
 }
 
 function extractNOIFromFS(text: string) {
@@ -845,7 +1143,14 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
       incomeStatement = incomeStatement ?? extractIncomeStatementTotals(input.text) ?? undefined
       cash = cash ?? extractCashTotals(normalized) ?? undefined
       receivables = receivables ?? extractReceivablesFromFS(normalized) ?? undefined
-      lineItems = lineItems ?? extractBudgetLineItemsFromText(input.text) ?? undefined
+      lineItems =
+        lineItems ??
+        extractBudgetLineItemsFromText(input.text, {
+          totalRevenueActual: incomeStatement?.totalRevenue?.actual ?? incomeStatement?.totalIncome,
+          totalExpensesActual: incomeStatement?.totalOperatingExpenses?.actual ?? incomeStatement?.totalExpenses,
+          warnings,
+        }) ??
+        undefined
       const parsedNotes = extractNotesFromFS(input.text)
       if (parsedNotes?.length) notes = [...notes, ...parsedNotes]
     }
@@ -892,7 +1197,14 @@ export function extractMonthDataFromPdfTexts(monthKey: string, inputs: PdfTextIn
     if (!bankReconciliation && /BANK STATEMENT|ADJUSTED BANK BALANCE/i.test(normalized)) {
       bankReconciliation = extractBankReconciliation(normalized) ?? undefined
     }
-    if (!lineItems && /(BUDGET|VARIANCE)\b/i.test(normalized)) lineItems = extractBudgetLineItemsFromText(input.text) ?? undefined
+    if (!lineItems && /(BUDGET|VARIANCE)\b/i.test(normalized)) {
+      lineItems =
+        extractBudgetLineItemsFromText(input.text, {
+          totalRevenueActual: incomeStatement?.totalRevenue?.actual ?? incomeStatement?.totalIncome,
+          totalExpensesActual: incomeStatement?.totalOperatingExpenses?.actual ?? incomeStatement?.totalExpenses,
+          warnings,
+        }) ?? undefined
+    }
     if (!notes.length && /(^|\s)NOTES(\s|$)/i.test(input.text)) {
       const parsedNotes = extractNotesFromFS(input.text)
       if (parsedNotes?.length) notes = parsedNotes

@@ -11,7 +11,9 @@
     "start": "next start",
     "lint": "next lint",
     "qa:pdf": "tsx scripts/qa-pdf-import.ts",
-    "qa:vercel-import": "tsx scripts/qa-vercel-import.ts"
+    "qa:data-integrity": "tsx scripts/qa-data-integrity.ts",
+    "qa:vercel-import": "tsx scripts/qa-vercel-import.ts",
+    "backfill:vercel-fs": "tsx scripts/backfill-vercel-fs.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.84",

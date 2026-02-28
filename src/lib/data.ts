@@ -18,6 +18,9 @@ export interface MonthlyData {
     lineItems?: Array<{
       label: string
       kind: 'revenue' | 'expense' | 'other'
+      category?: string
+      categoryOrder?: number
+      fsOrder?: number
       actual: number
       budget: number
       delta: number
