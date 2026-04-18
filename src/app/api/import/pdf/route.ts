@@ -174,13 +174,24 @@ export async function POST(request: Request) {
     }))
 
     const detected = detectMonthKeyForPdfInput(pdfInputs[0])
-    const usedMonthKey = monthKey
+    // Month matches from the FS text itself are strong enough at 9+ confidence to
+    // correct a stale selector without requiring the user to notice first.
+    const useDetectedMonth = Boolean(detected?.monthKey && detected.monthKey !== monthKey && detected.confidence >= 9)
+    const usedMonthKey = useDetectedMonth ? detected!.monthKey : monthKey
 
     const { data, extracted, warnings } = extractMonthDataFromPdfTexts(usedMonthKey, pdfInputs)
 
-    // Helpful warning if there is a strong detected month that differs from selection.
+    // Route clear month matches into the detected period; otherwise preserve the explicit selection.
     if (detected?.monthKey && detected.monthKey !== monthKey) {
-      warnings.unshift(`Detected month "${detected.monthKey}" from the FS PDF (${detected.evidence}). Kept selected month "${monthKey}".`)
+      if (useDetectedMonth) {
+        warnings.unshift(
+          `Detected month "${detected.monthKey}" from the FS PDF (${detected.evidence}). Imported to that month instead of the selected "${monthKey}".`
+        )
+      } else {
+        warnings.unshift(
+          `Detected month "${detected.monthKey}" from the FS PDF (${detected.evidence}). Kept selected month "${monthKey}" because the match was not high-confidence.`
+        )
+      }
     }
 
     console.log('[api/import/pdf] Extracted sources:', extracted.sources)
