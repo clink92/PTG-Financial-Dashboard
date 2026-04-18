@@ -18,6 +18,8 @@ type StoreFile = z.infer<typeof StoreFileSchema>
 
 // Redis client singleton
 let redisClient: Redis | null = null
+let redisRetryAfter = 0
+const REDIS_RETRY_BACKOFF_MS = 60_000
 
 type MemoryStore = Record<string, MonthlyData>
 const MEMORY_KEY = '__ptg_month_store__'
@@ -32,9 +34,25 @@ function getRedisUrl() {
 	return process.env.PTG_REDIS_URL || process.env.REDIS_URL
 }
 
+function resetRedisClient() {
+	if (!redisClient) return
+	redisClient.disconnect()
+	redisClient = null
+}
+
+function markRedisUnavailable(reason: string, err: unknown) {
+	redisRetryAfter = Date.now() + REDIS_RETRY_BACKOFF_MS
+	console.warn(`[monthStore] ${reason}`, err)
+	resetRedisClient()
+}
+
 async function getRedisClient(): Promise<Redis | null> {
 	const url = getRedisUrl()
 	if (!url) return null
+
+	if (redisRetryAfter > Date.now()) {
+		return null
+	}
 	
 	if (!redisClient) {
 		console.log('[monthStore] Creating new Redis client')
@@ -46,6 +64,7 @@ async function getRedisClient(): Promise<Redis | null> {
 		// Wait for connection
 		redisClient.on('error', (err) => {
 			console.error('[monthStore] Redis error:', err.message)
+			markRedisUnavailable('Redis client entered backoff', err)
 		})
 	}
 	
@@ -54,8 +73,9 @@ async function getRedisClient(): Promise<Redis | null> {
 		try {
 			await redisClient.ping()
 			console.log('[monthStore] Redis connected, status:', redisClient.status)
+			redisRetryAfter = 0
 		} catch (err) {
-			console.error('[monthStore] Redis ping failed:', err)
+			markRedisUnavailable('Redis ping failed', err)
 			return null
 		}
 	}
@@ -87,7 +107,6 @@ async function ensureLocalStoreDir() {
 }
 
 async function readLocalStore(): Promise<StoreFile> {
-	if (isServerless()) return {}
 	const p = await ensureLocalStoreDir()
 	try {
 		const raw = await fs.readFile(p, 'utf8')
@@ -108,6 +127,18 @@ async function writeLocalStore(data: StoreFile): Promise<void> {
 	if (isServerless()) return
 	const p = await ensureLocalStoreDir()
 	await fs.writeFile(p, JSON.stringify(data, null, 2), 'utf8')
+}
+
+async function readFallbackStore(): Promise<StoreFile> {
+	const localStore = await readLocalStore()
+	if (!isServerless()) return localStore
+
+	// Serverless instances can read the traced .data bundle, but only ephemeral
+	// in-memory writes are possible when Redis/KV are unavailable.
+	return {
+		...localStore,
+		...getMemoryStore(),
+	}
 }
 
 const KV_PREFIX = 'ptg:monthData:'
@@ -145,11 +176,7 @@ export async function getStoredMonthData(monthKey: string): Promise<MonthlyData 
 		return v ?? null
 	}
 
-	// Local file storage (development only)
-	if (isServerless()) {
-		return getMemoryStore()[parsedKey.data] ?? null
-	}
-	const store = await readLocalStore()
+	const store = await readFallbackStore()
 	return store[parsedKey.data] ?? null
 }
 
@@ -188,6 +215,7 @@ export async function setStoredMonthData(monthKey: string, data: MonthlyData): P
 
 	// Local file storage
 	if (isServerless()) {
+		console.warn('[monthStore] Falling back to in-memory serverless write', { monthKey })
 		getMemoryStore()[parsedKey.data] = data
 		return
 	}
@@ -236,9 +264,39 @@ export async function listStoredMonthKeys(): Promise<string[]> {
 	// Redis
 	if (hasRedisEnv()) {
 		const redis = await getRedisClient()
-		if (!redis) return []
+		if (redis) {
+			try {
+				const keys: string[] = []
+				const seen = new Set<string>()
+				let cursor = '0'
+				const match = `${KV_PREFIX}*`
+				const maxKeys = 500
 
+				do {
+					// eslint-disable-next-line no-await-in-loop
+					const res = await redis.scan(cursor, 'MATCH', match, 'COUNT', '100')
+					cursor = res[0]
+					for (const k of res[1]) {
+						if (!k.startsWith(KV_PREFIX)) continue
+						const monthKey = k.slice(KV_PREFIX.length)
+						if (!monthKey || seen.has(monthKey)) continue
+						seen.add(monthKey)
+						keys.push(monthKey)
+						if (keys.length >= maxKeys) break
+					}
+				} while (cursor !== '0' && keys.length < maxKeys)
+
+				return keys.sort(compareMonthKeysAsc)
+			} catch (err) {
+				console.warn('[monthStore] Redis scan failed, falling back:', err)
+			}
+		}
+	}
+
+	// Vercel KV (Upstash Redis under the hood)
+	if (hasVercelKVEnv()) {
 		try {
+			const { kv } = await import('@vercel/kv')
 			const keys: string[] = []
 			const seen = new Set<string>()
 			let cursor = '0'
@@ -247,9 +305,9 @@ export async function listStoredMonthKeys(): Promise<string[]> {
 
 			do {
 				// eslint-disable-next-line no-await-in-loop
-				const res = await redis.scan(cursor, 'MATCH', match, 'COUNT', '100')
-				cursor = res[0]
-				for (const k of res[1]) {
+				const [next, found] = await kv.scan(cursor, { match, count: 100 })
+				cursor = next
+				for (const k of found) {
 					if (!k.startsWith(KV_PREFIX)) continue
 					const monthKey = k.slice(KV_PREFIX.length)
 					if (!monthKey || seen.has(monthKey)) continue
@@ -261,37 +319,10 @@ export async function listStoredMonthKeys(): Promise<string[]> {
 
 			return keys.sort(compareMonthKeysAsc)
 		} catch (err) {
-			console.warn('[monthStore] Redis scan failed, falling back:', err)
+			console.warn('[monthStore] KV scan failed, falling back:', err)
 		}
 	}
 
-	// Vercel KV (Upstash Redis under the hood)
-	if (hasVercelKVEnv()) {
-		const { kv } = await import('@vercel/kv')
-		const keys: string[] = []
-		const seen = new Set<string>()
-		let cursor = '0'
-		const match = `${KV_PREFIX}*`
-		const maxKeys = 500
-
-		do {
-			// eslint-disable-next-line no-await-in-loop
-			const [next, found] = await kv.scan(cursor, { match, count: 100 })
-			cursor = next
-			for (const k of found) {
-				if (!k.startsWith(KV_PREFIX)) continue
-				const monthKey = k.slice(KV_PREFIX.length)
-				if (!monthKey || seen.has(monthKey)) continue
-				seen.add(monthKey)
-				keys.push(monthKey)
-				if (keys.length >= maxKeys) break
-			}
-		} while (cursor !== '0' && keys.length < maxKeys)
-
-		return keys.sort(compareMonthKeysAsc)
-	}
-
-	if (isServerless()) return Object.keys(getMemoryStore()).sort(compareMonthKeysAsc)
-	const store = await readLocalStore()
+	const store = await readFallbackStore()
 	return Object.keys(store).sort(compareMonthKeysAsc)
 }
