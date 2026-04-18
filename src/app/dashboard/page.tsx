@@ -95,20 +95,6 @@ type RevenueFlowLink = {
   path: string
 }
 
-type SankeyTooltipTone = 'revenue' | 'expense' | 'profit' | 'neutral'
-
-type SankeyTooltipState = {
-  x: number
-  y: number
-  title: string
-  lines: string[]
-  tone: SankeyTooltipTone
-  activeNodeId?: string
-  activeLinkKey?: string
-  activeLinkSource?: string
-  activeLinkTarget?: string
-}
-
 type FlowLevelPolicy = {
   minLevelsPerSide: number
   maxLevelsPerSide: number
@@ -116,6 +102,7 @@ type FlowLevelPolicy = {
   maxLinkWidth: number
   minNodeHeight: number
   maxNodeHeight: number
+  tinyFlowThresholdPct: number
 }
 
 const flowLevelPolicy: FlowLevelPolicy = {
@@ -125,14 +112,13 @@ const flowLevelPolicy: FlowLevelPolicy = {
   maxLinkWidth: 56,
   minNodeHeight: 18,
   maxNodeHeight: 74,
+  tinyFlowThresholdPct: 1,
 }
 const flowLevelBounds = { min: 1, max: 20 } as const
 
 type SankeyVisualProfile = {
   chartWidth: { compact: number; default: number }
   chartHeight: { min: number; max: number; slope: number; base: number }
-  titleY: number
-  subtitleY: number
   laneTop: number
   laneBottomPad: number
   laneWidths: number[]
@@ -145,24 +131,22 @@ type SankeyVisualProfile = {
 }
 
 const sankeyVisualProfile: SankeyVisualProfile = {
-  chartWidth: { compact: 1360, default: 1540 },
-  chartHeight: { min: 468, max: 720, slope: 58, base: 270 },
-  titleY: 40,
-  subtitleY: 58,
-  laneTop: 96,
+  chartWidth: { compact: 1180, default: 1320 },
+  chartHeight: { min: 400, max: 660, slope: 58, base: 210 },
+  laneTop: 46,
   laneBottomPad: 30,
-  laneWidths: [120, 102, 114, 142],
+  laneWidths: [124, 100, 112, 136],
   labelVisibilityThresholdPct: 1,
-  stageLabelY: 80,
-  nodeWidths: { side: 10, center: 24, centerCore: 26 },
+  stageLabelY: 30,
+  nodeWidths: { side: 16, center: 24, centerCore: 28 },
   sourcePalette: ['#1d4ed8', '#2563eb', '#0284c7', '#0ea5e9', '#38bdf8', '#60a5fa'],
   corePalette: {
-    revenue: '#2563eb',
+    revenue: '#1e40af',
     opex: '#dc2626',
     noi: '#16a34a',
     netIncome: '#15803d',
   },
-  expensePalette: ['#ef4444', '#f97316', '#fb7185', '#f87171', '#fca5a5', '#fecaca', '#fdba74'],
+  expensePalette: ['#ef4444', '#dc2626', '#f97316', '#fb7185', '#f43f5e', '#f87171', '#fca5a5'],
 }
 
 type LineItemSortCol = 'fs' | 'actual' | 'budget' | 'variance' | 'label'
@@ -291,19 +275,15 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview')
   const [incomeView, setIncomeView] = useState<'mtd' | 'ytd'>('mtd')
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ revenue: false, expenses: false, other: false })
-  const [revenueSort, setRevenueSort] = useState<LineItemSortState>({ col: 'actual', dir: 'desc' })
-  const [revenueBreakdownMode, setRevenueBreakdownMode] = useState<'category' | 'line-item'>('category')
-  const [expenseSort, setExpenseSort] = useState<LineItemSortState>({ col: 'actual', dir: 'desc' })
-  const [expenseBreakdownMode, setExpenseBreakdownMode] = useState<'category' | 'line-item'>('category')
+  const [revenueSort, setRevenueSort] = useState<LineItemSortState>({ col: 'fs', dir: 'asc' })
+  const [expenseSort, setExpenseSort] = useState<LineItemSortState>({ col: 'fs', dir: 'asc' })
   const [otherSort, setOtherSort] = useState<LineItemSortState>({ col: 'fs', dir: 'asc' })
   const [flowLevels, setFlowLevels] = useState<{ min: number; max: number }>({
     min: flowLevelPolicy.minLevelsPerSide,
     max: flowLevelPolicy.maxLevelsPerSide,
   })
-  const [sankeyTooltip, setSankeyTooltip] = useState<SankeyTooltipState | null>(null)
   const autoSelectedMonthRef = useRef(false)
   const chatEndRef = useRef<HTMLDivElement | null>(null)
-  const revenueFlowScrollRef = useRef<HTMLDivElement | null>(null)
 
   const [importFiles, setImportFiles] = useState<File[]>([])
   const [importing, setImporting] = useState(false)
@@ -316,10 +296,6 @@ export default function DashboardPage() {
   const trendKeys = useMemo(() => getTrailingMonthKeys(selectedMonth, 6), [selectedMonth])
   const trendLabels = useMemo(() => trendKeys.map((k) => monthKeyToPeriod(k).label), [trendKeys])
   const trendSeries = useMemo(() => trendKeys.map((_, i) => trendData[i] ?? null), [trendKeys, trendData])
-  const maxAutoSelectedMonth = useMemo(() => {
-    const now = getMonthKeyFromDate(new Date())
-    return addMonthsToMonthKey(now, 1) ?? now
-  }, [])
 
   const selectedMonthLabel =
     monthOptions.find((m) => m.value === selectedMonth)?.label || monthKeyToPeriod(selectedMonth).label || selectedMonth
@@ -363,15 +339,10 @@ export default function DashboardPage() {
           return mergedKeys.map((k) => ({ value: k, label: monthKeyToPeriod(k).label }))
         })
 
-        if (!autoSelectedMonthRef.current) {
-          const sorted = uniqueMonthKeys([...stored])
-            .filter((k) => compareMonthKeysAsc(k, maxAutoSelectedMonth) <= 0)
-            .sort((a, b) => compareMonthKeysAsc(b, a))
+        if (!autoSelectedMonthRef.current && !stored.includes(selectedMonth)) {
+          const sorted = uniqueMonthKeys([...stored]).sort((a, b) => compareMonthKeysAsc(b, a))
           const latest = sorted[0]
-          // Keep the default "previous month" selection when it is newer than the
-          // latest imported month so new packets (for example February right after
-          // January is the newest import) can be uploaded into the intended period.
-          if (latest && compareMonthKeysAsc(latest, selectedMonth) > 0) {
+          if (latest && latest !== selectedMonth) {
             setSelectedMonth(latest)
           }
           autoSelectedMonthRef.current = true
@@ -383,7 +354,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [maxAutoSelectedMonth, selectedMonth])
+  }, [selectedMonth])
 
   useEffect(() => {
     // Load trend data for the selected month window
@@ -433,10 +404,6 @@ export default function DashboardPage() {
     if (!chatEndRef.current) return
     chatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [chatMessages, chatLoading])
-
-  useEffect(() => {
-    setSankeyTooltip(null)
-  }, [selectedMonth, incomeView, flowLevels.min, flowLevels.max])
 
   useEffect(() => {
     const lineItems = monthData?.incomeStatement?.lineItems ?? []
@@ -894,28 +861,6 @@ export default function DashboardPage() {
     : revenueItemsRaw
   const revenueGroups = groupItemsByCategory(revenueItemsWithBalancing, 'revenue', revenueSort)
   const revenueItems = revenueGroups.flatMap((group) => group.items)
-  const revenueCategoryRows = sortItems(
-    revenueGroups.map((group, idx) => {
-      const actual = group.items.reduce((acc, item) => acc + (item.viewActual || 0), 0)
-      const budget = group.items.reduce((acc, item) => acc + (item.viewBudget || 0), 0)
-      return {
-        label: group.name,
-        category: group.name,
-        categoryOrder: group.order,
-        fsOrder: idx,
-        viewActual: actual,
-        viewBudget: budget,
-        viewDelta: actual - budget,
-      }
-    }),
-    revenueSort
-  )
-  const revenueBreakdownCount =
-    revenueBreakdownMode === 'category' ? revenueCategoryRows.length : revenueItems.length
-  const revenueBreakdownCountLabel =
-    revenueBreakdownMode === 'category'
-      ? `${revenueBreakdownCount} categories`
-      : `${revenueBreakdownCount} items`
 
   const sumExpensesRaw = expenseItemsRaw.reduce((acc, x) => acc + (x.viewActual || 0), 0)
   const sumExpensesBudgetRaw = expenseItemsRaw.reduce((acc, x) => acc + (x.viewBudget || 0), 0)
@@ -942,28 +887,6 @@ export default function DashboardPage() {
     : expenseItemsRaw
   const expenseGroups = groupItemsByCategory(expenseItemsWithBalancing, 'expense', expenseSort)
   const expenseItems = expenseGroups.flatMap((group) => group.items)
-  const expenseCategoryRows = sortItems(
-    expenseGroups.map((group, idx) => {
-      const actual = group.items.reduce((acc, item) => acc + (item.viewActual || 0), 0)
-      const budget = group.items.reduce((acc, item) => acc + (item.viewBudget || 0), 0)
-      return {
-        label: group.name,
-        category: group.name,
-        categoryOrder: group.order,
-        fsOrder: idx,
-        viewActual: actual,
-        viewBudget: budget,
-        viewDelta: actual - budget,
-      }
-    }),
-    expenseSort
-  )
-  const expenseBreakdownCount =
-    expenseBreakdownMode === 'category' ? expenseCategoryRows.length : expenseItems.length
-  const expenseBreakdownCountLabel =
-    expenseBreakdownMode === 'category'
-      ? `${expenseBreakdownCount} categories`
-      : `${expenseBreakdownCount} items`
   const otherGroups = groupItemsByCategory(otherItemsRaw, 'other', otherSort)
   const otherItems = otherGroups.flatMap((group) => group.items)
 
@@ -1289,7 +1212,7 @@ export default function DashboardPage() {
     const netIncomeFlow = Math.max(0, netIncomeActual)
     const compactSides = sourceNodes.length <= 2 && expenseNodes.length <= 2
     const chartWidth = compactSides ? sankeyVisualProfile.chartWidth.compact : sankeyVisualProfile.chartWidth.default
-    const columnCenters = compactSides ? [194, 500, 790, 1088] : [210, 560, 892, 1218]
+    const columnCenters = compactSides ? [188, 462, 742, 1008] : [170, 470, 790, 1138]
     const maxSideNodes = Math.max(sourceNodes.length, expenseNodes.length, 2)
     const chartHeight = Math.max(
       sankeyVisualProfile.chartHeight.min,
@@ -1305,25 +1228,25 @@ export default function DashboardPage() {
         id: 'lane-sources',
         x: columnCenters[0] - sankeyVisualProfile.laneWidths[0] / 2,
         w: sankeyVisualProfile.laneWidths[0],
-        fill: 'rgba(37, 99, 235, 0.016)',
+        fill: 'rgba(37, 99, 235, 0.05)',
       },
       {
         id: 'lane-revenue',
         x: columnCenters[1] - sankeyVisualProfile.laneWidths[1] / 2,
         w: sankeyVisualProfile.laneWidths[1],
-        fill: 'rgba(59, 130, 246, 0.014)',
+        fill: 'rgba(2, 132, 199, 0.06)',
       },
       {
         id: 'lane-allocation',
         x: columnCenters[2] - sankeyVisualProfile.laneWidths[2] / 2,
         w: sankeyVisualProfile.laneWidths[2],
-        fill: 'rgba(16, 185, 129, 0.016)',
+        fill: 'rgba(22, 163, 74, 0.045)',
       },
       {
         id: 'lane-expenses',
         x: columnCenters[3] - sankeyVisualProfile.laneWidths[3] / 2,
         w: sankeyVisualProfile.laneWidths[3],
-        fill: 'rgba(239, 68, 68, 0.016)',
+        fill: 'rgba(220, 38, 38, 0.05)',
       },
     ]
 
@@ -1339,7 +1262,7 @@ export default function DashboardPage() {
         stage: item.stage,
         column: 0,
         order: idx,
-        shape: 'bar',
+        shape: 'pill',
       })),
       {
         id: 'total-revenue',
@@ -1404,7 +1327,7 @@ export default function DashboardPage() {
         stage: item.stage,
         column: 3,
         order: idx,
-        shape: 'bar',
+        shape: 'pill',
       })),
     ]
 
@@ -1444,7 +1367,7 @@ export default function DashboardPage() {
       ...(netIncomeFlow > 0
         ? [
             {
-              source: 'noi',
+              source: 'total-revenue',
               target: 'net-income',
               value: netIncomeFlow,
               sharePct: revenueTotal > 0 ? (netIncomeFlow / revenueTotal) * 100 : null,
@@ -1484,12 +1407,7 @@ export default function DashboardPage() {
 
     const nodes: RevenueFlowNode[] = nodesBase.map((node) => ({
       ...node,
-      x:
-        node.id === 'noi'
-          ? (columnCenters[node.column] ?? 900) - 66
-          : node.id === 'net-income'
-            ? (columnCenters[node.column] ?? 900) + 66
-            : (columnCenters[node.column] ?? 900),
+      x: columnCenters[node.column] ?? 900,
       y: 0,
       w:
         node.column === 1 || node.column === 2
@@ -1510,7 +1428,7 @@ export default function DashboardPage() {
     for (const node of nodes) {
       const minHeight =
         node.shape === 'bar'
-          ? Math.max(flowLevelPolicy.minNodeHeight, node.column === 0 || node.column === 3 ? 18 : 34)
+          ? Math.max(flowLevelPolicy.minNodeHeight, 34)
           : flowLevelPolicy.minNodeHeight
       const linkedThickness = Math.max(inTotals.get(node.id) ?? 0, outTotals.get(node.id) ?? 0)
       node.h = Math.min(flowLevelPolicy.maxNodeHeight, Math.max(minHeight, linkedThickness))
@@ -1547,31 +1465,16 @@ export default function DashboardPage() {
 
       const sourceStart = outCursor.get(link.source) ?? sourceNode.y + sourceNode.h / 2
       const targetStart = inCursor.get(link.target) ?? targetNode.y + targetNode.h / 2
+      const sy = sourceStart + link.width / 2
+      const ty = targetStart + link.width / 2
+
       outCursor.set(link.source, sourceStart + link.width)
       inCursor.set(link.target, targetStart + link.width)
 
-      const sx = sourceNode.x + sourceNode.w / 2
-      const tx = targetNode.x - targetNode.w / 2
-      const sourceTop = sourceStart
-      const sourceBottom = sourceStart + link.width
-      const targetTop = targetStart
-      const targetBottom = targetStart + link.width
-      const sourceMid = sourceTop + link.width / 2
-      const targetMid = targetTop + link.width / 2
-      const linkSpan = Math.max(120, tx - sx)
-      const sourceCurve = Math.max(104, linkSpan * 0.38)
-      const targetCurve = Math.max(112, linkSpan * 0.46)
-      const returnSourceCurve = Math.max(92, sourceCurve * 0.86)
-      const returnTargetCurve = Math.max(98, targetCurve * 0.88)
-      const capRadius = Math.min(18, Math.max(5, link.width * 0.28))
-      const path = [
-        `M ${sx} ${sourceTop}`,
-        `C ${sx + sourceCurve} ${sourceTop}, ${tx - targetCurve} ${targetTop}, ${tx} ${targetTop}`,
-        `Q ${tx + capRadius} ${targetMid}, ${tx} ${targetBottom}`,
-        `C ${tx - returnTargetCurve} ${targetBottom}, ${sx + returnSourceCurve} ${sourceBottom}, ${sx} ${sourceBottom}`,
-        `Q ${sx - capRadius} ${sourceMid}, ${sx} ${sourceTop}`,
-        'Z',
-      ].join(' ')
+      const sx = sourceNode.x + sourceNode.w / 2 + 1
+      const tx = targetNode.x - targetNode.w / 2 - 1
+      const curve = Math.max(72, (tx - sx) * 0.46)
+      const path = `M ${sx} ${sy} C ${sx + curve} ${sy}, ${tx - curve} ${ty}, ${tx} ${ty}`
 
       return { ...link, path }
     })
@@ -1602,6 +1505,7 @@ export default function DashboardPage() {
       topSource: topSource ? { ...topSource, label: normalizeFlowLabel(topSource.label) } : null,
       topExpense: topExpense ? { ...topExpense, label: normalizeFlowLabel(topExpense.label) } : null,
       belowNoiActual,
+      tinyFlowThresholdPct: flowLevelPolicy.tinyFlowThresholdPct,
       flowMinLevels,
       flowMaxLevels,
       chartWidth,
@@ -1622,30 +1526,26 @@ export default function DashboardPage() {
     const placements = new Map<string, { x: number; y: number; w: number; h: number }>()
     if (!revenueFlowModel) return placements
 
-    const topPad = sankeyVisualProfile.laneTop + 14
-    const bottomPad = 22
-    const nodeLookup = new Map(revenueFlowModel.nodes.map((node) => [node.id, node]))
+    const topPad = 62
+    const bottomPad = 18
+    const rowGap = 8
 
     for (const col of [0, 1, 2, 3]) {
-      const isSideColumn = col === 0 || col === 3
-      const colTopPad = isSideColumn ? topPad : topPad + 8
-      const colBottomPad = isSideColumn ? bottomPad : bottomPad + 4
-      const rowGap = isSideColumn ? 12 : 10
       const colNodes = revenueFlowModel.nodes
-        .filter((node) => node.column === col && node.showLabel && !coreFlowNodeIds.has(node.id))
+        .filter((node) => node.column === col && node.showLabel)
         .sort((a, b) => a.order - b.order)
 
       if (!colNodes.length) continue
 
       const entries: FlowLabelEntry[] = colNodes.map((node) => {
         const isCore = coreFlowNodeIds.has(node.id)
-        const h = isSideColumn ? 48 : isCore ? 62 : 44
-        const w = isSideColumn ? (col === 3 ? 286 : 252) : col === 2 ? 220 : 216
+        const h = isCore ? 60 : 40
+        const w = col === 3 ? 234 : col === 0 ? 214 : isCore ? 210 : 186
         const targetCenter = node.y + node.h / 2
         return { node, h, w, targetCenter, isCore }
       })
 
-      const availableHeight = Math.max(0, revenueFlowModel.chartHeight - colTopPad - colBottomPad)
+      const availableHeight = Math.max(0, revenueFlowModel.chartHeight - topPad - bottomPad)
       const getTotalHeight = (rows: FlowLabelEntry[]) =>
         rows.reduce((acc, entry) => acc + entry.h, 0) + rowGap * Math.max(0, rows.length - 1)
 
@@ -1673,129 +1573,24 @@ export default function DashboardPage() {
       const yPositions = resolveFlowLabelY(
         entries,
         revenueFlowModel.chartHeight,
-        colTopPad,
-        colBottomPad,
+        topPad,
+        bottomPad,
         rowGap
       )
 
       for (let idx = 0; idx < entries.length; idx += 1) {
         const entry = entries[idx]
-        let y = yPositions[idx]
-        if (entry.node.id === 'total-revenue') y -= 4
-        if (entry.node.id === 'operating-expenses') y -= 8
-        if (entry.node.id === 'noi') y -= 2
-        if (entry.node.id === 'net-income') y += 8
         const rawX =
           col === 0
-            ? entry.node.x - entry.w - 34
-            : col === 1
-              ? entry.node.x - entry.w / 2 - 8
-              : col === 2 && entry.node.id === 'noi'
-                ? entry.node.x - entry.w - 30
-                : col === 2 && entry.node.id === 'net-income'
-                  ? entry.node.x + entry.node.w / 2 + 34
-                : col === 3
-                  ? entry.node.x + entry.node.w / 2 + 62
-                  : entry.node.x + entry.node.w / 2 + 24
+            ? entry.node.x - entry.w - 18
+            : entry.node.x + entry.node.w / 2 + 12
         const x = Math.max(8, Math.min(revenueFlowModel.chartWidth - entry.w - 8, rawX))
-        y = Math.max(colTopPad, Math.min(revenueFlowModel.chartHeight - colBottomPad - entry.h, y))
-        placements.set(entry.node.id, { x, y, w: entry.w, h: entry.h })
+        placements.set(entry.node.id, { x, y: yPositions[idx], w: entry.w, h: entry.h })
       }
-    }
-
-    // Final collision pass across all columns: keep core labels, drop lower-priority non-core labels.
-    const overlapPad = 6
-    const overlaps = (
-      a: { x: number; y: number; w: number; h: number },
-      b: { x: number; y: number; w: number; h: number }
-    ) =>
-      !(
-        a.x + a.w + overlapPad <= b.x ||
-        b.x + b.w + overlapPad <= a.x ||
-        a.y + a.h + overlapPad <= b.y ||
-        b.y + b.h + overlapPad <= a.y
-      )
-
-    type PlacedLabel = {
-      id: string
-      rect: { x: number; y: number; w: number; h: number }
-      isCore: boolean
-      priority: number
-      column: number
-    }
-
-    const candidates: PlacedLabel[] = Array.from(placements.entries())
-      .map(([id, rect]) => {
-        const node = nodeLookup.get(id)
-        if (!node) return null
-        return {
-          id,
-          rect,
-          isCore: coreFlowNodeIds.has(id),
-          priority: node.labelPriority,
-          column: node.column,
-        }
-      })
-      .filter((entry): entry is PlacedLabel => Boolean(entry))
-      .sort((a, b) => {
-        if (a.isCore !== b.isCore) return a.isCore ? -1 : 1
-        return b.priority - a.priority
-      })
-
-    const accepted: PlacedLabel[] = []
-    for (const candidate of candidates) {
-      const collisions = accepted.filter(
-        (other) => other.column === candidate.column && overlaps(candidate.rect, other.rect)
-      )
-      if (!collisions.length) {
-        accepted.push(candidate)
-        continue
-      }
-
-      if (!candidate.isCore) {
-        placements.delete(candidate.id)
-        continue
-      }
-
-      if (collisions.some((other) => other.isCore)) {
-        placements.delete(candidate.id)
-        continue
-      }
-
-      for (const collision of collisions) {
-        placements.delete(collision.id)
-      }
-      for (let idx = accepted.length - 1; idx >= 0; idx -= 1) {
-        if (collisions.some((entry) => entry.id === accepted[idx].id)) {
-          accepted.splice(idx, 1)
-        }
-      }
-      accepted.push(candidate)
     }
 
     return placements
   })()
-
-  const updateSankeyTooltipFromEvent = (
-    event: { clientX: number; clientY: number },
-    payload: Omit<SankeyTooltipState, 'x' | 'y'>
-  ) => {
-    const host = revenueFlowScrollRef.current
-    if (!host) return
-
-    const rect = host.getBoundingClientRect()
-    const tooltipWidth = 264
-    const tooltipHeight = 106
-    const x = Math.max(12, Math.min(rect.width - tooltipWidth - 12, event.clientX - rect.left + 14))
-    const y = Math.max(12, Math.min(rect.height - tooltipHeight - 12, event.clientY - rect.top + 14))
-    setSankeyTooltip({ ...payload, x, y })
-  }
-
-  const clearSankeyTooltip = () => setSankeyTooltip(null)
-  const activeTooltipNodeId = sankeyTooltip?.activeNodeId ?? null
-  const activeTooltipLinkKey = sankeyTooltip?.activeLinkKey ?? null
-  const activeTooltipLinkSource = sankeyTooltip?.activeLinkSource ?? null
-  const activeTooltipLinkTarget = sankeyTooltip?.activeLinkTarget ?? null
 
   const formatMoM = (pct: number | null, invertColor = false) => {
     if (pct === null) return null
@@ -2360,13 +2155,13 @@ export default function DashboardPage() {
       {activeTab === 'overview' && (
         <>
           {canImport && (
-            <div className="card import-quick-card" id="pdf-import-quick" style={{ marginBottom: 20 }}>
+            <div className="card" id="pdf-import-quick" style={{ marginBottom: 20 }}>
               <div className="card-header">
                 <div className="card-title"><i className="fas fa-file-import"></i> Monthly FS Upload</div>
                 <div className="card-tag">{selectedMonthLabel}</div>
               </div>
               <div className="card-body">
-                <div className="upload-toolbar">
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <input
                     type="file"
                     accept="application/pdf"
@@ -2405,7 +2200,7 @@ export default function DashboardPage() {
                   </button>
                 </div>
 
-                <div className="upload-note">
+                <div style={{ marginTop: 10, color: 'var(--text-muted)', fontSize: 12 }}>
                   Upload the <strong>Financial Statements (FS) PDF</strong>. All dashboard numbers are derived only from this document.
                 </div>
 
@@ -2461,8 +2256,8 @@ export default function DashboardPage() {
           )}
 
           {/* Key Metrics Row */}
-          <div className="grid grid-4 overview-kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <div className="card overview-kpi-card">
+          <div className="grid grid-4" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <div className="card">
               <div className="card-title"><i className="fas fa-calculator"></i> NOI</div>
               <div className="metric-main" style={{ color: typeof monthData?.noi?.actual === 'number' && monthData.noi.actual < 0 ? '#ef4444' : undefined }}>
                 {formatCurrency(monthData?.noi?.actual)}
@@ -2480,7 +2275,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="card overview-kpi-card">
+            <div className="card">
               <div className="card-title"><i className="fas fa-coins"></i> Net Income</div>
               <div className="metric-main" style={{ color: typeof monthData?.netIncome?.actual === 'number' && monthData.netIncome.actual < 0 ? '#ef4444' : undefined }}>
                 {formatCurrency(monthData?.netIncome?.actual)}
@@ -2498,7 +2293,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="card overview-kpi-card">
+            <div className="card">
               <div className="card-title"><i className="fas fa-wallet"></i> Cash Position</div>
               <div className="metric-main">{formatCurrency(monthData?.cash?.total)}</div>
               <div className="metric-sub">
@@ -2514,7 +2309,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="card overview-kpi-card">
+            <div className="card">
               <div className="card-title"><i className="fas fa-file-invoice-dollar"></i> A/R Total</div>
               <div className="metric-main">{formatCurrency(receivables?.total)}</div>
               <div className="metric-sub">
@@ -2709,7 +2504,7 @@ export default function DashboardPage() {
                     >
                       <span>
                         <i className="fas fa-arrow-trend-up" style={{ marginRight: 8, color: '#22c55e' }}></i>
-                        Revenue Breakdown ({revenueBreakdownCountLabel})
+                        Revenue Breakdown ({revenueItems.length} items)
                       </span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ fontSize: 12, fontWeight: 500 }}>
@@ -2720,25 +2515,6 @@ export default function DashboardPage() {
                     </button>
                     {expandedSections.revenue && (
                       <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-                          <div className="revenue-flow-segmented" aria-label="Revenue breakdown view mode">
-                            <span className="revenue-flow-segmented-label">Revenue</span>
-                            <button
-                              type="button"
-                              className={revenueBreakdownMode === 'category' ? 'is-active' : ''}
-                              onClick={() => setRevenueBreakdownMode('category')}
-                            >
-                              Categories
-                            </button>
-                            <button
-                              type="button"
-                              className={revenueBreakdownMode === 'line-item' ? 'is-active' : ''}
-                              onClick={() => setRevenueBreakdownMode('line-item')}
-                            >
-                              Line Items
-                            </button>
-                          </div>
-                        </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                           <thead>
                             <tr style={{ background: 'rgba(34, 197, 94, 0.04)' }}>
@@ -2754,7 +2530,7 @@ export default function DashboardPage() {
                                 }
                                 style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
                               >
-                                {revenueBreakdownMode === 'category' ? 'Category' : 'Item'}
+                                Item
                                 {revenueSort.col === 'label' && ` ${revenueSort.dir === 'asc' ? '↑' : '↓'}`}
                                 {revenueSort.col === 'fs' && ' • FS'}
                               </th>
@@ -2779,74 +2555,36 @@ export default function DashboardPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {revenueBreakdownMode === 'category'
-                              ? revenueCategoryRows.map((row, idx) => (
-                                  <tr
-                                    key={`revenue-category-${row.label}-${idx}`}
-                                    style={{
-                                      borderBottom: '1px solid var(--border)',
-                                      background: row.label.includes('Unclassified')
-                                        ? 'rgba(245, 158, 11, 0.08)'
-                                        : 'rgba(15, 23, 42, 0.035)',
-                                    }}
-                                  >
-                                    <td
-                                      style={{
-                                        padding: '8px 16px',
-                                        fontSize: 13,
-                                        fontWeight: 700,
-                                        letterSpacing: '0.04em',
-                                        textTransform: 'uppercase',
-                                        fontStyle: row.label.includes('Unclassified') ? 'italic' : undefined,
-                                        color: row.label.includes('Unclassified') ? 'var(--text-muted)' : '#374151',
-                                      }}
-                                    >
-                                      {row.label}
-                                    </td>
-                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(row.viewActual)}</td>
-                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(row.viewBudget)}</td>
-                                    <td
-                                      style={{
-                                        textAlign: 'right',
-                                        padding: '8px 16px',
-                                        fontSize: 13,
-                                        color: row.viewDelta >= 0 ? '#22c55e' : '#ef4444',
-                                      }}
-                                    >
-                                      {formatCurrency(row.viewDelta)}
-                                    </td>
+                            {revenueGroups.map((group) => (
+                              <Fragment key={`revenue-group-${group.name}`}>
+                                <tr style={{ background: 'rgba(15, 23, 42, 0.04)' }}>
+                                  <td colSpan={4} style={{ padding: '7px 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                                    {group.name}
+                                  </td>
+                                </tr>
+                                {group.items.map((item, idx) => (
+                                  <tr key={`revenue-item-${group.name}-${item.label}-${idx}`} style={{ 
+                                    borderBottom: '1px solid var(--border)',
+                                    background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
+                                  }}>
+                                    <td style={{ 
+                                      padding: '8px 16px', 
+                                      fontSize: 13,
+                                      fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                      color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
+                                    }}>{item.label}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
+                                    <td style={{ 
+                                      textAlign: 'right', 
+                                      padding: '8px 16px', 
+                                      fontSize: 13,
+                                      color: item.viewDelta >= 0 ? '#22c55e' : '#ef4444'
+                                    }}>{formatCurrency(item.viewDelta)}</td>
                                   </tr>
-                                ))
-                              : revenueGroups.map((group) => (
-                                  <Fragment key={`revenue-group-${group.name}`}>
-                                    <tr style={{ background: 'rgba(15, 23, 42, 0.04)' }}>
-                                      <td colSpan={4} style={{ padding: '7px 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-                                        {group.name}
-                                      </td>
-                                    </tr>
-                                    {group.items.map((item, idx) => (
-                                      <tr key={`revenue-item-${group.name}-${item.label}-${idx}`} style={{
-                                        borderBottom: '1px solid var(--border)',
-                                        background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
-                                      }}>
-                                        <td style={{
-                                          padding: '8px 16px',
-                                          fontSize: 13,
-                                          fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
-                                          color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
-                                        }}>{item.label}</td>
-                                        <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
-                                        <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
-                                        <td style={{
-                                          textAlign: 'right',
-                                          padding: '8px 16px',
-                                          fontSize: 13,
-                                          color: item.viewDelta >= 0 ? '#22c55e' : '#ef4444'
-                                        }}>{formatCurrency(item.viewDelta)}</td>
-                                      </tr>
-                                    ))}
-                                  </Fragment>
                                 ))}
+                              </Fragment>
+                            ))}
                           </tbody>
                           <tfoot>
                             <tr style={{ background: 'rgba(34, 197, 94, 0.12)', fontWeight: 600 }}>
@@ -2881,7 +2619,7 @@ export default function DashboardPage() {
                     >
                       <span>
                         <i className="fas fa-arrow-trend-down" style={{ marginRight: 8, color: '#ef4444' }}></i>
-                        Expense Breakdown ({expenseBreakdownCountLabel})
+                        Expense Breakdown ({expenseItems.length} items)
                       </span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ fontSize: 12, fontWeight: 500 }}>
@@ -2892,25 +2630,6 @@ export default function DashboardPage() {
                     </button>
                     {expandedSections.expenses && (
                       <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-                          <div className="revenue-flow-segmented" aria-label="Expense breakdown view mode">
-                            <span className="revenue-flow-segmented-label">Expense</span>
-                            <button
-                              type="button"
-                              className={expenseBreakdownMode === 'category' ? 'is-active' : ''}
-                              onClick={() => setExpenseBreakdownMode('category')}
-                            >
-                              Categories
-                            </button>
-                            <button
-                              type="button"
-                              className={expenseBreakdownMode === 'line-item' ? 'is-active' : ''}
-                              onClick={() => setExpenseBreakdownMode('line-item')}
-                            >
-                              Line Items
-                            </button>
-                          </div>
-                        </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                           <thead>
                             <tr style={{ background: 'rgba(239, 68, 68, 0.04)' }}>
@@ -2926,7 +2645,7 @@ export default function DashboardPage() {
                                 }
                                 style={{ textAlign: 'left', padding: '8px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}
                               >
-                                {expenseBreakdownMode === 'category' ? 'Category' : 'Item'}
+                                Item
                                 {expenseSort.col === 'label' && ` ${expenseSort.dir === 'asc' ? '↑' : '↓'}`}
                                 {expenseSort.col === 'fs' && ' • FS'}
                               </th>
@@ -2951,74 +2670,36 @@ export default function DashboardPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {expenseBreakdownMode === 'category'
-                              ? expenseCategoryRows.map((row, idx) => (
-                                  <tr
-                                    key={`expense-category-${row.label}-${idx}`}
-                                    style={{
-                                      borderBottom: '1px solid var(--border)',
-                                      background: row.label.includes('Unclassified')
-                                        ? 'rgba(245, 158, 11, 0.08)'
-                                        : 'rgba(15, 23, 42, 0.035)',
-                                    }}
-                                  >
-                                    <td
-                                      style={{
-                                        padding: '8px 16px',
-                                        fontSize: 13,
-                                        fontWeight: 700,
-                                        letterSpacing: '0.04em',
-                                        textTransform: 'uppercase',
-                                        fontStyle: row.label.includes('Unclassified') ? 'italic' : undefined,
-                                        color: row.label.includes('Unclassified') ? 'var(--text-muted)' : '#374151',
-                                      }}
-                                    >
-                                      {row.label}
-                                    </td>
-                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(row.viewActual)}</td>
-                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(row.viewBudget)}</td>
-                                    <td
-                                      style={{
-                                        textAlign: 'right',
-                                        padding: '8px 16px',
-                                        fontSize: 13,
-                                        color: row.viewDelta <= 0 ? '#22c55e' : '#ef4444',
-                                      }}
-                                    >
-                                      {formatCurrency(row.viewDelta)}
-                                    </td>
+                            {expenseGroups.map((group) => (
+                              <Fragment key={`expense-group-${group.name}`}>
+                                <tr style={{ background: 'rgba(15, 23, 42, 0.04)' }}>
+                                  <td colSpan={4} style={{ padding: '7px 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                                    {group.name}
+                                  </td>
+                                </tr>
+                                {group.items.map((item, idx) => (
+                                  <tr key={`expense-item-${group.name}-${item.label}-${idx}`} style={{ 
+                                    borderBottom: '1px solid var(--border)',
+                                    background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
+                                  }}>
+                                    <td style={{ 
+                                      padding: '8px 16px', 
+                                      fontSize: 13,
+                                      fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
+                                      color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
+                                    }}>{item.label}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
+                                    <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
+                                    <td style={{ 
+                                      textAlign: 'right', 
+                                      padding: '8px 16px', 
+                                      fontSize: 13,
+                                      color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444'
+                                    }}>{formatCurrency(item.viewDelta)}</td>
                                   </tr>
-                                ))
-                              : expenseGroups.map((group) => (
-                                  <Fragment key={`expense-group-${group.name}`}>
-                                    <tr style={{ background: 'rgba(15, 23, 42, 0.04)' }}>
-                                      <td colSpan={4} style={{ padding: '7px 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-                                        {group.name}
-                                      </td>
-                                    </tr>
-                                    {group.items.map((item, idx) => (
-                                      <tr key={`expense-item-${group.name}-${item.label}-${idx}`} style={{ 
-                                        borderBottom: '1px solid var(--border)',
-                                        background: item.label.includes('Unclassified') ? 'rgba(245, 158, 11, 0.08)' : undefined
-                                      }}>
-                                        <td style={{ 
-                                          padding: '8px 16px', 
-                                          fontSize: 13,
-                                          fontStyle: item.label.includes('Unclassified') ? 'italic' : undefined,
-                                          color: item.label.includes('Unclassified') ? 'var(--text-muted)' : undefined
-                                        }}>{item.label}</td>
-                                        <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13 }}>{formatCurrency(item.viewActual)}</td>
-                                        <td style={{ textAlign: 'right', padding: '8px 16px', fontSize: 13, color: 'var(--text-muted)' }}>{formatCurrency(item.viewBudget)}</td>
-                                        <td style={{ 
-                                          textAlign: 'right', 
-                                          padding: '8px 16px', 
-                                          fontSize: 13,
-                                          color: item.viewDelta <= 0 ? '#22c55e' : '#ef4444'
-                                        }}>{formatCurrency(item.viewDelta)}</td>
-                                      </tr>
-                                    ))}
-                                  </Fragment>
                                 ))}
+                              </Fragment>
+                            ))}
                           </tbody>
                           <tfoot>
                             <tr style={{ background: 'rgba(239, 68, 68, 0.12)', fontWeight: 600 }}>
@@ -3245,26 +2926,20 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <div className="revenue-flow-scroll" ref={revenueFlowScrollRef} onMouseLeave={clearSankeyTooltip}>
+                <div className="revenue-flow-scroll">
                   <svg
                     className="revenue-flow-svg"
                     viewBox={`0 0 ${revenueFlowModel.chartWidth} ${revenueFlowModel.chartHeight}`}
                     role="img"
                     aria-label="Revenue flow from categories to operating expenses and NOI"
-                    onMouseLeave={clearSankeyTooltip}
-                    shapeRendering="geometricPrecision"
                   >
                     <defs>
                       <linearGradient id="revenue-flow-surface" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#fbfdff" />
-                        <stop offset="55%" stopColor="#f5f9ff" />
-                        <stop offset="100%" stopColor="#edf3fd" />
+                        <stop offset="0%" stopColor="#f8fbff" />
+                        <stop offset="100%" stopColor="#eef4ff" />
                       </linearGradient>
-                      <filter id="revenue-flow-soft-shadow" x="-24%" y="-24%" width="148%" height="148%">
-                        <feDropShadow dx="0" dy="5" stdDeviation="6" floodColor="rgba(15, 23, 42, 0.14)" />
-                      </filter>
-                      <filter id="revenue-flow-link-shadow" x="-24%" y="-24%" width="148%" height="148%">
-                        <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="rgba(59, 130, 246, 0.1)" />
+                      <filter id="revenue-flow-soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="2" stdDeviation="2.6" floodColor="rgba(15, 23, 42, 0.18)" />
                       </filter>
                       {revenueFlowModel.links.map((link, idx) => {
                         const sourceNode = revenueFlowNodeMap?.get(link.source)
@@ -3286,37 +2961,6 @@ export default function DashboardPage() {
                       rx={18}
                       fill="url(#revenue-flow-surface)"
                     />
-                    <line
-                      x1={18}
-                      y1={12}
-                      x2={revenueFlowModel.chartWidth - 18}
-                      y2={12}
-                      className="revenue-flow-frame-line"
-                    />
-                    <line
-                      x1={18}
-                      y1={revenueFlowModel.chartHeight - 12}
-                      x2={revenueFlowModel.chartWidth - 18}
-                      y2={revenueFlowModel.chartHeight - 12}
-                      className="revenue-flow-frame-line is-faint"
-                    />
-
-                    <text
-                      x={revenueFlowModel.chartWidth / 2}
-                      y={sankeyVisualProfile.titleY}
-                      textAnchor="middle"
-                      className="revenue-flow-chart-title"
-                    >
-                      {selectedMonthLabel} Income Statement Flow
-                    </text>
-                    <text
-                      x={revenueFlowModel.chartWidth / 2}
-                      y={sankeyVisualProfile.subtitleY}
-                      textAnchor="middle"
-                      className="revenue-flow-chart-subtitle"
-                    >
-                      {lineItemScopeLabel} view · FS categories
-                    </text>
 
                     {revenueFlowModel.lanes.map((lane) => (
                       <rect
@@ -3331,372 +2975,132 @@ export default function DashboardPage() {
                     ))}
 
                     {revenueFlowModel.stages.map((stage) => (
-                      <text
-                        key={stage.label}
-                        x={stage.x}
-                        y={sankeyVisualProfile.stageLabelY}
-                        textAnchor="middle"
-                        className="revenue-flow-stage-label"
-                      >
+                      <text key={stage.label} x={stage.x} y={28} textAnchor="middle" className="revenue-flow-stage-label">
                         {stage.label}
                       </text>
                     ))}
 
-                    {revenueFlowModel.links.map((link, idx) => {
-                      const sourceNode = revenueFlowNodeMap?.get(link.source)
-                      const targetNode = revenueFlowNodeMap?.get(link.target)
-                      const linkKey = `${link.source}__${link.target}__${idx}`
-                      const pct = typeof link.sharePct === 'number' ? formatFlowPct(link.sharePct, 100) : null
-                      const context =
-                        link.stage === 'expense-categories'
-                          ? 'of opex'
-                          : link.target === 'net-income'
-                            ? 'net margin'
-                            : link.target === 'noi'
-                              ? 'NOI margin'
-                              : 'of revenue'
-                      const tone: SankeyTooltipTone =
-                        link.stage === 'expense-categories' || link.target === 'operating-expenses'
-                          ? 'expense'
-                          : link.target === 'noi' || link.target === 'net-income'
-                            ? 'profit'
-                            : 'revenue'
-                      const isTiny =
-                        typeof link.sharePct === 'number' &&
-                        link.sharePct < revenueFlowModel.labelVisibilityThresholdPct
-                      const isActive =
-                        activeTooltipLinkKey === linkKey ||
-                        (activeTooltipNodeId !== null &&
-                          (link.source === activeTooltipNodeId || link.target === activeTooltipNodeId))
-                      const isDim = activeTooltipLinkKey
-                        ? activeTooltipLinkKey !== linkKey
-                        : activeTooltipNodeId
-                          ? !(link.source === activeTooltipNodeId || link.target === activeTooltipNodeId)
-                          : false
-                      const baseOpacity = isTiny ? 0.24 : 0.64
-                      const fillOpacity = isDim ? 0.12 : isActive ? 0.88 : baseOpacity
-                      const tooltipLines = [
-                        formatCurrencyFull(link.value),
-                        pct ? `${pct} ${context}` : null,
-                      ].filter((line): line is string => Boolean(line))
-
-                      return (
-                        <path
-                          key={linkKey}
-                          className={`revenue-flow-link${isActive ? ' is-active' : ''}${isDim ? ' is-dim' : ''}`}
-                          d={link.path}
-                          fill={`url(#flow-grad-${idx})`}
-                          fillOpacity={fillOpacity}
-                          stroke="rgba(255, 255, 255, 0.28)"
-                          strokeOpacity={isDim ? 0.08 : 0.24}
-                          strokeWidth={0.9}
-                          strokeLinejoin="round"
-                          strokeLinecap="round"
-                          filter="url(#revenue-flow-link-shadow)"
-                          onMouseEnter={(event) =>
-                            updateSankeyTooltipFromEvent(event, {
-                              title: `${sourceNode?.label ?? link.source} → ${targetNode?.label ?? link.target}`,
-                              lines: tooltipLines,
-                              tone,
-                              activeLinkKey: linkKey,
-                              activeLinkSource: link.source,
-                              activeLinkTarget: link.target,
-                            })
-                          }
-                          onMouseMove={(event) =>
-                            updateSankeyTooltipFromEvent(event, {
-                              title: `${sourceNode?.label ?? link.source} → ${targetNode?.label ?? link.target}`,
-                              lines: tooltipLines,
-                              tone,
-                              activeLinkKey: linkKey,
-                              activeLinkSource: link.source,
-                              activeLinkTarget: link.target,
-                            })
-                          }
-                          onMouseLeave={clearSankeyTooltip}
-                        >
-                          <title>{`${sourceNode?.label ?? link.source} → ${targetNode?.label ?? link.target}: ${formatCurrencyFull(link.value)}${
-                            pct ? ` (${pct} ${context})` : ''
-                          }`}</title>
-                        </path>
-                      )
-                    })}
+                    {revenueFlowModel.links.map((link, idx) => (
+                      <path
+                        key={`${link.source}-${link.target}-${idx}`}
+                        d={link.path}
+                        stroke={`url(#flow-grad-${idx})`}
+                        strokeOpacity={0.52}
+                        strokeWidth={link.width}
+                        fill="none"
+                        strokeLinecap="round"
+                      >
+                        <title>{`${revenueFlowNodeMap?.get(link.source)?.label ?? link.source} → ${revenueFlowNodeMap?.get(link.target)?.label ?? link.target}: ${formatCurrencyFull(link.value)}${
+                          (() => {
+                            if (!revenueFlowModel) return ''
+                            const sourceNode = revenueFlowNodeMap?.get(link.source)
+                            const targetNode = revenueFlowNodeMap?.get(link.target)
+                            if (sourceNode?.column === 0) {
+                              const pct = revenueFlowModel.revenueTotal > 0 ? (link.value / revenueFlowModel.revenueTotal) * 100 : null
+                              return typeof pct === 'number' ? ` (${formatFlowPct(link.value, revenueFlowModel.revenueTotal)} of revenue)` : ''
+                            }
+                            if (link.source === 'operating-expenses' && targetNode) {
+                              const pct = revenueFlowModel.operatingExpensesActual > 0
+                                ? (targetNode.displayValue / revenueFlowModel.operatingExpensesActual) * 100
+                                : null
+                              return typeof pct === 'number' ? ` (${formatFlowPct(targetNode.displayValue, revenueFlowModel.operatingExpensesActual)} of opex)` : ''
+                            }
+                            if (link.source === 'total-revenue') {
+                              const pct = revenueFlowModel.revenueTotal > 0 ? (link.value / revenueFlowModel.revenueTotal) * 100 : null
+                              return typeof pct === 'number' ? ` (${formatFlowPct(link.value, revenueFlowModel.revenueTotal)} of revenue)` : ''
+                            }
+                            if (link.source === 'noi' && targetNode) {
+                              const pct = revenueFlowModel.revenueTotal > 0
+                                ? (targetNode.displayValue / revenueFlowModel.revenueTotal) * 100
+                                : null
+                              return typeof pct === 'number' ? ` (${formatFlowPct(targetNode.displayValue, revenueFlowModel.revenueTotal)} net margin)` : ''
+                            }
+                            return ''
+                          })()
+                        }`}</title>
+                      </path>
+                    ))}
 
                     {revenueFlowModel.nodes.map((node) => {
-                      const isCoreNode = coreFlowNodeIds.has(node.id)
-                      const isSideCategoryNode = !isCoreNode && (node.column === 0 || node.column === 3)
                       const nodeLabel = compactFlowLabel(
                         normalizeFlowLabel(node.label),
-                        isCoreNode ? 28 : node.column === 3 ? 31 : node.column === 0 ? 27 : 24
+                        node.column === 3 ? 30 : node.column === 0 ? 28 : 24
                       )
                       const labelBox = revenueFlowLabelLayout.get(node.id)
-                      const labelPlacement = labelBox && node.showLabel ? labelBox : null
-                      const shouldRenderLabel = isCoreNode || Boolean(labelPlacement)
-                      const isLabelOnRight = labelPlacement ? labelPlacement.x >= node.x : true
+                      const isLabelOnRight = labelBox ? labelBox.x >= node.x : true
                       const connectorY = node.y + node.h / 2
                       const connectorStartX = isLabelOnRight
                         ? node.x + node.w / 2 + 3
                         : node.x - node.w / 2 - 3
-                      const connectorEndX = labelPlacement
+                      const connectorEndX = labelBox
                         ? isLabelOnRight
-                          ? labelPlacement.x
-                          : labelPlacement.x + labelPlacement.w
+                          ? labelBox.x
+                          : labelBox.x + labelBox.w
                         : connectorStartX
-                      const shareText =
-                        typeof node.sharePct === 'number' ? formatFlowPct(node.sharePct, 100) : null
-                      const shareContextLong =
-                        node.id === 'noi'
-                          ? 'NOI margin'
-                          : node.id === 'net-income'
-                            ? 'net margin'
-                            : node.stage === 'expense-categories'
-                              ? 'of opex'
-                              : 'of revenue'
-                      const shareContextShort =
+                      const shareBase =
+                        node.column === 3
+                          ? revenueFlowModel.operatingExpensesActual
+                          : revenueFlowModel.revenueTotal
+                      const shareSuffix =
                         node.id === 'noi'
                           ? 'NOI'
                           : node.id === 'net-income'
                             ? 'net'
-                            : node.stage === 'expense-categories'
+                            : node.column === 3
                               ? 'opex'
                               : 'rev'
+                      const shareText = formatFlowPct(node.displayValue, Math.max(shareBase, 1))
                       const valueLine = shareText
-                        ? `${formatCurrency(node.displayValue)} • ${shareText} ${shareContextShort}`
+                        ? `${formatCurrency(node.displayValue)} • ${shareText} ${shareSuffix}`
                         : formatCurrency(node.displayValue)
-                      const sideValueLine = shareText
-                        ? `${formatCurrency(node.displayValue)} • ${shareText} ${shareContextLong}`
-                        : formatCurrency(node.displayValue)
-                      const detailLine =
-                        shareText && isCoreNode ? `${shareText} ${shareContextLong}` : null
-                      const coreTone =
-                        node.id === 'operating-expenses'
-                          ? 'expense'
-                          : node.id === 'total-revenue'
-                            ? 'revenue'
-                            : 'profit'
-                      const coreLabelSpec =
-                        node.id === 'total-revenue'
-                          ? {
-                              titleX: node.x,
-                              titleY: node.y - 18,
-                              valueY: node.y - 1,
-                              detailY: node.y + 15,
-                              anchor: 'middle' as const,
-                            }
-                          : node.id === 'operating-expenses'
-                            ? {
-                                titleX: node.x + 56,
-                                titleY: node.y + node.h + 38,
-                                valueY: node.y + node.h + 57,
-                                detailY: node.y + node.h + 74,
-                                anchor: 'middle' as const,
-                              }
-                            : node.id === 'noi'
-                              ? {
-                                  titleX: node.x - 14,
-                                  titleY: node.y + node.h + 28,
-                                  valueY: node.y + node.h + 47,
-                                  detailY: node.y + node.h + 64,
-                                  anchor: 'middle' as const,
-                                }
-                              : {
-                                  titleX: node.x + 60,
-                                  titleY: node.y + node.h / 2 - 2,
-                                  valueY: node.y + node.h / 2 + 17,
-                                  detailY: node.y + node.h / 2 + 34,
-                                  anchor: 'start' as const,
-                                }
-                      const labelX = (labelPlacement?.x ?? 0) + 10
-                      const labelTitleY = (labelPlacement?.y ?? 0) + 17
-                      const labelValueY = labelTitleY + 16
-                      const labelDetailY = labelValueY + 16
-                      const inlineAnchor: 'start' | 'end' = node.column === 0 ? 'end' : 'start'
-                      const inlineTextX = node.column === 0 ? node.x - node.w / 2 - 12 : node.x + node.w / 2 + 10
-                      const inlineCenterY = labelPlacement ? labelPlacement.y + labelPlacement.h / 2 : node.y + node.h / 2
-                      const inlineTitleY = inlineCenterY - 2
-                      const inlineValueY = inlineCenterY + 16
-                      const inlineConnectorStartX = node.column === 0 ? node.x - node.w / 2 - 2 : node.x + node.w / 2 + 2
-                      const inlineConnectorEndX = node.column === 0 ? inlineTextX + 8 : inlineTextX - 8
-                      const nodeTone: SankeyTooltipTone =
-                        node.stage === 'expense-categories' || node.id === 'operating-expenses'
-                          ? 'expense'
-                          : node.id === 'noi' || node.id === 'net-income'
-                            ? 'profit'
-                            : 'revenue'
-                      const tooltipLines = [
-                        formatCurrencyFull(node.displayValue),
-                        shareText ? `${shareText} ${shareContextLong}` : null,
-                      ].filter((line): line is string => Boolean(line))
-                      const isRelatedToActiveNode = activeTooltipNodeId
-                        ? node.id === activeTooltipNodeId ||
-                          revenueFlowModel.links.some(
-                            (link) =>
-                              (link.source === activeTooltipNodeId && link.target === node.id) ||
-                              (link.target === activeTooltipNodeId && link.source === node.id)
-                          )
-                        : true
-                      const isPartOfActiveLink = activeTooltipLinkKey
-                        ? node.id === activeTooltipLinkSource || node.id === activeTooltipLinkTarget
-                        : false
-                      const isNodeActive = activeTooltipNodeId
-                        ? node.id === activeTooltipNodeId
-                        : activeTooltipLinkKey
-                          ? isPartOfActiveLink
-                          : false
-                      const isNodeDim = activeTooltipLinkKey
-                        ? !isPartOfActiveLink
-                        : activeTooltipNodeId
-                          ? !isRelatedToActiveNode
-                          : false
+                      const labelX = (labelBox?.x ?? 0) + 11
+                      const labelY = (labelBox?.y ?? 0) + 21
                       return (
-                        <g
-                          key={node.id}
-                          className={`revenue-flow-node${isNodeActive ? ' is-active' : ''}${isNodeDim ? ' is-dim' : ''}`}
-                          onMouseEnter={(event) =>
-                            updateSankeyTooltipFromEvent(event, {
-                              title: normalizeFlowLabel(node.label),
-                              lines: tooltipLines,
-                              tone: nodeTone,
-                              activeNodeId: node.id,
-                            })
-                          }
-                          onMouseMove={(event) =>
-                            updateSankeyTooltipFromEvent(event, {
-                              title: normalizeFlowLabel(node.label),
-                              lines: tooltipLines,
-                              tone: nodeTone,
-                              activeNodeId: node.id,
-                            })
-                          }
-                          onMouseLeave={clearSankeyTooltip}
-                        >
+                        <g key={node.id}>
                           <rect
-                            className={`revenue-flow-node-shape${isNodeDim ? ' is-dim' : ''}`}
                             x={node.x - node.w / 2}
                             y={node.y}
                             width={node.w}
                             height={node.h}
-                            rx={node.shape === 'bar' ? Math.min(node.w / 2, node.column === 0 || node.column === 3 ? 10 : 12) : node.w / 2}
+                            rx={node.w / 2}
                             fill={node.color}
-                            opacity={isNodeDim ? 0.32 : 0.97}
+                            opacity={0.96}
                             filter="url(#revenue-flow-soft-shadow)"
                           />
-                          {labelPlacement && !isCoreNode ? (
+                          <circle cx={node.x} cy={node.y + node.h / 2} r={2.5} fill="#ffffff" opacity={0.9} />
+                          {labelBox ? (
                             <>
                               <line
                                 x1={connectorStartX}
                                 y1={connectorY}
                                 x2={connectorEndX}
-                                y2={(labelPlacement?.y ?? 0) + (labelPlacement?.h ?? 0) / 2}
+                                y2={labelBox.y + labelBox.h / 2}
                                 className="revenue-flow-label-link"
+                              />
+                              <rect
+                                x={labelBox.x}
+                                y={labelBox.y}
+                                width={labelBox.w}
+                                height={labelBox.h}
+                                rx={10}
+                                className="revenue-flow-label-box"
                               />
                             </>
                           ) : null}
-                          {shouldRenderLabel ? (
-                            <>
-                              {isCoreNode ? (
-                                <>
-                                  <text
-                                    x={coreLabelSpec.titleX}
-                                    y={coreLabelSpec.titleY}
-                                    textAnchor={coreLabelSpec.anchor}
-                                    className={`revenue-flow-core-title is-${coreTone}${isNodeDim ? ' is-dim' : ''}`}
-                                  >
-                                    {normalizeFlowLabel(node.label)}
-                                  </text>
-                                  <text
-                                    x={coreLabelSpec.titleX}
-                                    y={coreLabelSpec.valueY}
-                                    textAnchor={coreLabelSpec.anchor}
-                                    className={`revenue-flow-core-value is-${coreTone}${isNodeDim ? ' is-dim' : ''}`}
-                                  >
-                                    {formatCurrency(node.displayValue)}
-                                  </text>
-                                  {detailLine ? (
-                                    <text
-                                      x={coreLabelSpec.titleX}
-                                      y={coreLabelSpec.detailY}
-                                      textAnchor={coreLabelSpec.anchor}
-                                      className={`revenue-flow-core-detail is-${coreTone}${isNodeDim ? ' is-dim' : ''}`}
-                                    >
-                                      {detailLine}
-                                    </text>
-                                  ) : null}
-                                </>
-                              ) : isSideCategoryNode ? (
-                                <>
-                                  <line
-                                    x1={inlineConnectorStartX}
-                                    y1={inlineCenterY}
-                                    x2={inlineConnectorEndX}
-                                    y2={inlineCenterY}
-                                    className="revenue-flow-inline-link"
-                                  />
-                                  <text
-                                    x={inlineTextX}
-                                    y={inlineTitleY}
-                                    textAnchor={inlineAnchor}
-                                    className={`revenue-flow-inline-title${isNodeDim ? ' is-dim' : ''}`}
-                                  >
-                                    {nodeLabel}
-                                  </text>
-                                  <text
-                                    x={inlineTextX}
-                                    y={inlineValueY}
-                                    textAnchor={inlineAnchor}
-                                    className={`revenue-flow-inline-value${isNodeDim ? ' is-dim' : ''}`}
-                                  >
-                                    {sideValueLine}
-                                  </text>
-                                </>
-                              ) : (
-                                <>
-                                  <text
-                                    x={labelX}
-                                    y={labelTitleY}
-                                    textAnchor="start"
-                                    className="revenue-flow-node-label"
-                                  >
-                                    {nodeLabel}
-                                  </text>
-                                  <text
-                                    x={labelX}
-                                    y={labelValueY}
-                                    textAnchor="start"
-                                    className="revenue-flow-node-value"
-                                  >
-                                    {valueLine}
-                                  </text>
-                                  {detailLine ? (
-                                    <text x={labelX} y={labelDetailY} textAnchor="start" className="revenue-flow-node-detail">
-                                      {detailLine}
-                                    </text>
-                                  ) : null}
-                                </>
-                              )}
-                            </>
-                          ) : null}
+                          <text x={labelX} y={labelY} textAnchor="start" className="revenue-flow-node-label">
+                            {nodeLabel}
+                          </text>
+                          <text x={labelX} y={labelY + 16} textAnchor="start" className="revenue-flow-node-value">
+                            {valueLine}
+                          </text>
                         </g>
                       )
                     })}
                   </svg>
-                  {sankeyTooltip ? (
-                    <div
-                      className={`revenue-flow-tooltip is-${sankeyTooltip.tone}`}
-                      style={{ left: sankeyTooltip.x, top: sankeyTooltip.y }}
-                    >
-                      <div className="revenue-flow-tooltip-title">{sankeyTooltip.title}</div>
-                      {sankeyTooltip.lines.map((line, idx) => (
-                        <div key={`${sankeyTooltip.title}-${idx}`} className="revenue-flow-tooltip-line">
-                          {line}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
 
                 <div className="revenue-flow-footnote">
-                  FS categories stay sorted by statement order. Hover flows for details. Display levels: Min {revenueFlowModel.flowMinLevels} / Max {revenueFlowModel.flowMaxLevels}.
+                  Categories come from bold FS section headings and remain FS-sorted. Levels are clamped to Min {revenueFlowModel.flowMinLevels} / Max {revenueFlowModel.flowMaxLevels}. Categories below {revenueFlowModel.tinyFlowThresholdPct.toFixed(0)}% are folded into Other. Below-NOI items: {formatCurrencyFull(revenueFlowModel.belowNoiActual)}.
                 </div>
               </div>
             </div>
