@@ -256,11 +256,31 @@ body {
   .layout-2col, .layout-3col {
     grid-template-columns: 1fr;
   }
+
+  .breakdown-summary {
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 768px) {
   .grid-5 {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .breakdown-topline {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .breakdown-chevron {
+    display: none;
+  }
+
+  .breakdown-item-row {
+    flex-direction: column;
+  }
+
+  .breakdown-item-values {
+    justify-content: flex-start;
   }
 }
 
@@ -482,6 +502,186 @@ body {
 
 .notes li::marker {
   color: var(--accent);
+}
+
+/* Roll-up breakdowns */
+.breakdown-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 6px 0 12px;
+}
+
+.breakdown-highlight {
+  min-width: 180px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.breakdown-highlight-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.breakdown-highlight-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.breakdown-highlight-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.breakdown-note {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.breakdown-group {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f9fbfd 100%);
+  overflow: hidden;
+}
+
+.breakdown-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.breakdown-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.breakdown-label-wrap {
+  min-width: 0;
+}
+
+.breakdown-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.breakdown-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.breakdown-values {
+  text-align: right;
+}
+
+.breakdown-actual {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.breakdown-variance {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.breakdown-variance.positive {
+  color: var(--success);
+}
+
+.breakdown-variance.negative {
+  color: var(--danger);
+}
+
+.breakdown-chevron {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.breakdown-progress {
+  margin-top: 10px;
+}
+
+.breakdown-budget {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.breakdown-items {
+  border-top: 1px solid var(--border);
+  padding: 0 14px 8px;
+}
+
+.breakdown-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.breakdown-item-row:first-child {
+  border-top: 0;
+}
+
+.breakdown-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-main);
+  line-height: 1.45;
+}
+
+.breakdown-item-values {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.breakdown-item-values span {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.breakdown-item-values .positive {
+  color: var(--success);
+}
+
+.breakdown-item-values .negative {
+  color: var(--danger);
 }
 
 /* Pills */

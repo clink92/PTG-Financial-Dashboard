@@ -17,7 +17,7 @@ import {
   Filler
 } from 'chart.js'
 import { Line, Pie, Bar } from 'react-chartjs-2'
-import { financialData, availableMonths, getMonthData, getTrendData, MonthlyData } from '@/lib/data'
+import { availableMonths, getMonthData, getTrendData, MonthlyData, BreakdownCategory } from '@/lib/data'
 import { generateInsights, generateAISummary, AIInsight } from '@/lib/insights'
 
 ChartJS.register(
@@ -44,6 +44,7 @@ export default function DashboardPage() {
   const [aiSummary, setAiSummary] = useState('')
   const [loadingInsights, setLoadingInsights] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
+  const [expandedBreakdowns, setExpandedBreakdowns] = useState<Record<string, boolean>>({})
 
   const monthData = getMonthData(selectedMonth)
   const trendData = getTrendData()
@@ -152,6 +153,19 @@ export default function DashboardPage() {
   }
 
   const formatPercent = (value: number) => `${value.toFixed(1)}%`
+  const formatSignedCurrency = (value: number) => {
+    const abs = Math.abs(value)
+    const base = formatCurrency(abs)
+    if (value > 0) return `+${base}`
+    if (value < 0) return `-${base}`
+    return base
+  }
+  const sumBreakdownActual = (categories: BreakdownCategory[]) => categories.reduce((sum, category) => sum + category.actual, 0)
+  const sumBreakdownBudget = (categories: BreakdownCategory[]) => categories.reduce((sum, category) => sum + category.budget, 0)
+  const sumBreakdownVariance = (categories: BreakdownCategory[]) => categories.reduce((sum, category) => sum + category.variance, 0)
+  const toggleBreakdown = (key: string, nextOpen: boolean) => {
+    setExpandedBreakdowns((prev) => ({ ...prev, [key]: nextOpen }))
+  }
 
   const cashBreakdown = monthData.cash.breakdown
   const totalCash = monthData.cash.total
@@ -220,6 +234,105 @@ export default function DashboardPage() {
       description: `${formatCurrency(Math.abs(legalVariance))} ${legalVariance > 0 ? 'over' : 'under'} legal budget.`,
     },
   ]
+  const renderBreakdownCard = (
+    title: string,
+    icon: string,
+    categories: BreakdownCategory[] = [],
+    tone: 'success' | 'warning'
+  ) => {
+    const totalActual = sumBreakdownActual(categories)
+    const totalBudget = sumBreakdownBudget(categories)
+    const totalVariance = sumBreakdownVariance(categories)
+    const topCategory = categories[0]
+
+    return (
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">
+            <i className={`fas fa-${icon}`}></i>
+            {title}
+          </div>
+          <div className={`card-tag ${tone}`}>{categories.length} Categories</div>
+        </div>
+        <div className="breakdown-summary">
+          <div>
+            <div className="metric-main">{formatCurrency(totalActual)}</div>
+            <div className="metric-sub">
+              Budget <span>{formatCurrency(totalBudget)}</span>
+              &nbsp; • &nbsp;
+              Variance <span className={totalVariance >= 0 ? 'positive' : 'negative'}>{formatSignedCurrency(totalVariance)}</span>
+            </div>
+          </div>
+          {topCategory && (
+            <div className="breakdown-highlight">
+              <div className="breakdown-highlight-label">Top category</div>
+              <div className="breakdown-highlight-value">{topCategory.label}</div>
+              <div className="breakdown-highlight-meta">{formatCurrency(topCategory.actual)}</div>
+            </div>
+          )}
+        </div>
+        <div className="breakdown-note">
+          Roll up by category first, then expand any row to inspect the key line items behind it.
+        </div>
+        <div className="breakdown-list">
+          {categories.map((category, index) => {
+            const key = `${monthData.label}:${title}:${category.label}`
+            const isExpanded = expandedBreakdowns[key] ?? index === 0
+            const share = totalActual ? Math.abs(category.actual / totalActual) * 100 : 0
+
+            return (
+              <div key={category.label} className={`breakdown-group ${isExpanded ? 'open' : ''}`}>
+                <button
+                  className="breakdown-toggle"
+                  type="button"
+                  onClick={() => toggleBreakdown(key, !isExpanded)}
+                >
+                  <div className="breakdown-topline">
+                    <div className="breakdown-label-wrap">
+                      <div className="breakdown-label">{category.label}</div>
+                      <div className="breakdown-meta">
+                        {category.items.length} key lines • {share.toFixed(1)}% of roll-up
+                      </div>
+                    </div>
+                    <div className="breakdown-values">
+                      <div className="breakdown-actual">{formatCurrency(category.actual)}</div>
+                      <div className={`breakdown-variance ${category.variance >= 0 ? 'positive' : 'negative'}`}>
+                        {formatSignedCurrency(category.variance)}
+                      </div>
+                    </div>
+                    <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} breakdown-chevron`}></i>
+                  </div>
+                  <div className="progress-bar breakdown-progress">
+                    <div
+                      className={`progress-fill ${category.variance >= 0 ? 'success' : 'warning'}`}
+                      style={{ width: `${Math.max(share, 6)}%` }}
+                    ></div>
+                  </div>
+                  <div className="breakdown-budget">Budget {formatCurrency(category.budget)}</div>
+                </button>
+                {isExpanded && (
+                  <div className="breakdown-items">
+                    {category.items.map((item) => (
+                      <div key={item.label} className="breakdown-item-row">
+                        <div className="breakdown-item-name">{item.label}</div>
+                        <div className="breakdown-item-values">
+                          <span>Act {formatCurrency(item.actual)}</span>
+                          <span>Bud {formatCurrency(item.budget)}</span>
+                          <span className={item.variance >= 0 ? 'positive' : 'negative'}>
+                            {formatSignedCurrency(item.variance)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="page">
@@ -682,6 +795,12 @@ export default function DashboardPage() {
                 }}
               />
             </div>
+          </div>
+
+          <div className="section-divider"><i className="fas fa-layer-group"></i> Revenue & Expense Roll-Up</div>
+          <div className="layout-2col">
+            {renderBreakdownCard('Revenue Breakdown', 'sack-dollar', monthData.revenueBreakdown, 'success')}
+            {renderBreakdownCard('Expense Breakdown', 'chart-pie', monthData.expenseBreakdown, 'warning')}
           </div>
 
           {/* Notes */}
