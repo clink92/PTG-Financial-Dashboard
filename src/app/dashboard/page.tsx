@@ -36,7 +36,7 @@ ChartJS.register(
 export default function DashboardPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const [selectedMonth, setSelectedMonth] = useState('nov-2025')
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => availableMonths[0]?.value || '')
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [showSecurityModal, setShowSecurityModal] = useState(false)
@@ -156,6 +156,70 @@ export default function DashboardPage() {
   const cashBreakdown = monthData.cash.breakdown
   const totalCash = monthData.cash.total
   const arrearsAging = monthData.collections?.aging
+  const trendMonthCount = trendData.length
+  const arrearsTrendIcon =
+    monthData.arrears.trend === 'down'
+      ? 'arrow-down'
+      : monthData.arrears.trend === 'up'
+        ? 'arrow-up'
+        : 'minus'
+  const legalVariance = monthData.expenses.legal - monthData.budgets.legal
+  const utilitiesVariance = monthData.expenses.utilities - monthData.budgets.utilities
+  const rmVariance = monthData.expenses.repairsMaint - monthData.budgets.repairsMaint
+  const qaChecks = [
+    {
+      type: 'success',
+      icon: 'check-circle',
+      title: 'FS Package Imported',
+      description: monthData.importedAt
+        ? `Imported ${monthData.importedAt}.`
+        : `Imported month data is loaded for ${monthData.label}.`,
+    },
+    {
+      type: 'success',
+      icon: 'check-circle',
+      title: 'Revenue and NOI Loaded',
+      description: `NOI ${formatCurrency(monthData.noi.actual)} and category-level actual versus budget comparisons are available from the selected FS import.`,
+    },
+    {
+      type: 'success',
+      icon: 'check-circle',
+      title: 'Cash and Receivables Parsed',
+      description: `Cash ${formatCurrency(monthData.cash.total)} and arrears ${formatCurrency(monthData.arrears.amount)} loaded for ${monthData.month}.`,
+    },
+    {
+      type: 'info',
+      icon: 'info-circle',
+      title: 'Derived Commentary',
+      description: `Notes, AI insights and variance commentary are derived directly from the imported ${monthData.label} financial statements.`,
+    },
+  ]
+  const varianceAlerts = [
+    {
+      type: monthData.noi.variance >= 0 ? 'success' : 'danger',
+      icon: monthData.noi.variance >= 0 ? 'chart-line' : 'triangle-exclamation',
+      title: monthData.noi.variance >= 0 ? 'NOI Ahead of Budget' : 'NOI Below Budget',
+      description: `${formatCurrency(Math.abs(monthData.noi.variance))} ${monthData.noi.variance >= 0 ? 'favorable' : 'unfavorable'} variance versus budget.`,
+    },
+    {
+      type: utilitiesVariance > 0 ? 'warning' : 'info',
+      icon: 'bolt',
+      title: utilitiesVariance > 0 ? 'Utilities Over Budget' : 'Utilities Below Budget',
+      description: `${formatCurrency(Math.abs(utilitiesVariance))} ${utilitiesVariance > 0 ? 'over' : 'under'} utility budget.`,
+    },
+    {
+      type: rmVariance > 0 ? 'warning' : 'info',
+      icon: 'wrench',
+      title: rmVariance > 0 ? 'R&M Over Budget' : 'R&M Below Budget',
+      description: `${formatCurrency(Math.abs(rmVariance))} ${rmVariance > 0 ? 'over' : 'under'} repairs and maintenance budget.`,
+    },
+    {
+      type: legalVariance > 0 ? 'danger' : 'info',
+      icon: 'gavel',
+      title: legalVariance > 0 ? 'Legal Spend Above Budget' : 'Legal Spend Within Budget',
+      description: `${formatCurrency(Math.abs(legalVariance))} ${legalVariance > 0 ? 'over' : 'under'} legal budget.`,
+    },
+  ]
 
   return (
     <div className="page">
@@ -426,7 +490,7 @@ export default function DashboardPage() {
                 </>
               )}
               <div className={`metric-badge ${monthData.arrears.trend === 'down' ? '' : 'warning'}`}>
-                <i className={`fas fa-arrow-${monthData.arrears.trend}`}></i>
+                <i className={`fas fa-${arrearsTrendIcon}`}></i>
                 Trending {monthData.arrears.trend === 'down' ? 'Down' : monthData.arrears.trend === 'up' ? 'Up' : 'Stable'}
               </div>
             </div>
@@ -523,6 +587,25 @@ export default function DashboardPage() {
                           <span className="stat-value">{formatCurrency(monthData.reservesStatus.monthlyContribution)}</span>
                         </div>
                       </>
+                    ) : cashBreakdown ? (
+                      <>
+                        <div className="stat-row">
+                          <span className="stat-label">Operating Reserve</span>
+                          <span className="stat-value">{formatCurrency(cashBreakdown.reserve)}</span>
+                        </div>
+                        <div className="stat-row" style={{ marginTop: 10 }}>
+                          <span className="stat-label">Security Deposits</span>
+                          <span className="stat-value">{formatCurrency(cashBreakdown.security)}</span>
+                        </div>
+                        <div className="stat-row" style={{ marginTop: 10 }}>
+                          <span className="stat-label">Capital Reserve</span>
+                          <span className="stat-value">{formatCurrency(cashBreakdown.capital)}</span>
+                        </div>
+                        <div className="stat-row" style={{ marginTop: 10 }}>
+                          <span className="stat-label">Imported FS Package</span>
+                          <span className="stat-value">{monthData.importedAt || monthData.label}</span>
+                        </div>
+                      </>
                     ) : (
                       <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Reserve status unavailable for this month.</div>
                     )}
@@ -540,7 +623,7 @@ export default function DashboardPage() {
                   <i className="fas fa-chart-line"></i>
                   NOI Trend
                 </div>
-                <div className="card-tag">Last 6 Months</div>
+                <div className="card-tag">Last {trendMonthCount} Months</div>
               </div>
               <div className="card-body" style={{ height: 280 }}>
                 <Line 
@@ -770,9 +853,9 @@ export default function DashboardPage() {
         <div className="grid" style={{ gridTemplateColumns: '1fr' }}>
           <div className="card">
             <div className="card-header">
-              <div className="card-title">
-                <i className="fas fa-chart-area"></i>
-                6-Month NOI Performance
+                <div className="card-title">
+                  <i className="fas fa-chart-area"></i>
+                {trendMonthCount}-Month NOI Performance
               </div>
             </div>
             <div className="card-body" style={{ height: 350 }}>
@@ -790,8 +873,8 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="layout-3col">
-            {trendData.slice(-3).map((data) => (
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            {trendData.map((data) => (
               <div className="card" key={data.label}>
                 <div className="card-header">
                   <div className="card-title">{data.label}</div>
@@ -828,37 +911,18 @@ export default function DashboardPage() {
                 <i className="fas fa-clipboard-check"></i>
                 Data Quality Checks
               </div>
-              <div className="card-tag success">All Passed</div>
+              <div className="card-tag success">FS-backed</div>
             </div>
             <div className="card-body">
-              <div className="alert-item success">
-                <i className="fas fa-check-circle"></i>
-                <div className="alert-content">
-                  <div className="alert-title">Revenue Reconciliation</div>
-                  <div className="alert-desc">All revenue accounts balance with bank statements</div>
+              {qaChecks.map((check) => (
+                <div key={check.title} className={`alert-item ${check.type}`}>
+                  <i className={`fas fa-${check.icon}`}></i>
+                  <div className="alert-content">
+                    <div className="alert-title">{check.title}</div>
+                    <div className="alert-desc">{check.description}</div>
+                  </div>
                 </div>
-              </div>
-              <div className="alert-item success">
-                <i className="fas fa-check-circle"></i>
-                <div className="alert-content">
-                  <div className="alert-title">Expense Classification</div>
-                  <div className="alert-desc">All expenses properly categorized per chart of accounts</div>
-                </div>
-              </div>
-              <div className="alert-item success">
-                <i className="fas fa-check-circle"></i>
-                <div className="alert-content">
-                  <div className="alert-title">Budget Comparison</div>
-                  <div className="alert-desc">Variance analysis completed for all line items</div>
-                </div>
-              </div>
-              <div className="alert-item warning">
-                <i className="fas fa-exclamation-triangle"></i>
-                <div className="alert-content">
-                  <div className="alert-title">Missing Bill Alert</div>
-                  <div className="alert-desc">Water/sewer invoice not posted - verify timing</div>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
@@ -868,37 +932,18 @@ export default function DashboardPage() {
                 <i className="fas fa-exclamation-triangle"></i>
                 Variance Alerts
               </div>
-              <div className="card-tag warning">3 Items</div>
+              <div className="card-tag warning">Live Variances</div>
             </div>
             <div className="card-body">
-              <div className="alert-item danger">
-                <i className="fas fa-gavel"></i>
-                <div className="alert-content">
-                  <div className="alert-title">Legal Expenses Over Budget</div>
-                  <div className="alert-desc">
-                    ${(monthData.expenses.legal - monthData.budgets.legal).toLocaleString()} over budget 
-                    ({Math.round((monthData.expenses.legal / monthData.budgets.legal - 1) * 100)}% variance)
+              {varianceAlerts.map((alert) => (
+                <div key={alert.title} className={`alert-item ${alert.type}`}>
+                  <i className={`fas fa-${alert.icon}`}></i>
+                  <div className="alert-content">
+                    <div className="alert-title">{alert.title}</div>
+                    <div className="alert-desc">{alert.description}</div>
                   </div>
                 </div>
-              </div>
-              <div className="alert-item info">
-                <i className="fas fa-bolt"></i>
-                <div className="alert-content">
-                  <div className="alert-title">Utilities Under Budget</div>
-                  <div className="alert-desc">
-                    ${Math.abs(monthData.expenses.utilities - monthData.budgets.utilities).toLocaleString()} favorable variance - verify all bills posted
-                  </div>
-                </div>
-              </div>
-              <div className="alert-item info">
-                <i className="fas fa-wrench"></i>
-                <div className="alert-content">
-                  <div className="alert-title">R&M Under Budget</div>
-                  <div className="alert-desc">
-                    ${Math.abs(monthData.expenses.repairsMaint - monthData.budgets.repairsMaint).toLocaleString()} favorable - ensure no deferred maintenance
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
@@ -916,28 +961,28 @@ export default function DashboardPage() {
                   <i className="fas fa-file-import" style={{ marginRight: 8 }}></i>
                   Financial data imported
                 </span>
-                <span className="stat-value">Dec 5, 2025 2:30 PM</span>
+                <span className="stat-value">{monthData.importedAt || monthData.label}</span>
               </div>
               <div className="stat-row">
                 <span className="stat-label">
                   <i className="fas fa-calculator" style={{ marginRight: 8 }}></i>
                   Budget reconciliation completed
                 </span>
-                <span className="stat-value">Dec 5, 2025 3:15 PM</span>
+                <span className="stat-value">{monthData.label} actual vs budget loaded</span>
               </div>
               <div className="stat-row">
                 <span className="stat-label">
                   <i className="fas fa-robot" style={{ marginRight: 8 }}></i>
                   AI analysis generated
                 </span>
-                <span className="stat-value">Dec 5, 2025 3:20 PM</span>
+                <span className="stat-value">On demand for the selected month</span>
               </div>
               <div className="stat-row">
                 <span className="stat-label">
                   <i className="fas fa-user-check" style={{ marginRight: 8 }}></i>
                   Report reviewed by {session?.user?.name}
                 </span>
-                <span className="stat-value">Just now</span>
+                <span className="stat-value">{monthData.label}</span>
               </div>
             </div>
           </div>
